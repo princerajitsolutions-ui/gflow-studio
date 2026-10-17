@@ -9,6 +9,8 @@ const run = promisify(execFile);
 const FFMPEG = process.env.FLOW_MCP_FFMPEG ?? "ffmpeg";
 const FFPROBE = process.env.FLOW_MCP_FFPROBE ?? "ffprobe";
 
+export type TransitionType = "none" | "fade" | "fadeblack" | "fadewhite" | "smoothleft" | "smoothright" | "dissolve";
+
 export interface AssembleOptions {
   dir: string;
   clips?: string[];
@@ -18,6 +20,11 @@ export interface AssembleOptions {
   voiceover?: string;
   output_name: string;
   hold_last_frame?: boolean;
+  transition?: TransitionType;
+  transitions?: TransitionType[];
+  transition_duration?: number;
+  trim_chained_first_frame?: boolean;
+  sidechain_ducking?: boolean;
 }
 
 interface ClipInfo {
@@ -72,22 +79,71 @@ export async function extractAudio(video: string, target: string): Promise<{ out
 
 const SAY = process.env.FLOW_MCP_SAY ?? "say";
 
-// The voices this computer has installed. On a Mac that is `say` (Premium voices appear as soon as the user downloads
-// them in System Settings); on Windows it is the built-in speech engine, the voices under Settings > Time & language >
-// Speech. The Windows branch is written to the documented System.Speech API but has not been run on a real PC yet.
+export const EDGE_VOICE_MAP: Record<string, string> = {
+  charon: "en-US-BrianMultilingualNeural",
+  fenrir: "en-US-AndrewMultilingualNeural",
+  algenib: "en-US-ChristopherNeural",
+  iapetus: "en-US-EricNeural",
+  enceladus: "en-US-GuyNeural",
+  aoede: "en-US-AvaMultilingualNeural",
+  gacrux: "en-US-EmmaMultilingualNeural",
+  achernar: "en-US-JennyNeural",
+  despina: "en-US-AriaNeural",
+  david: "en-US-ChristopherNeural",
+  zira: "en-US-AriaNeural",
+};
+
+export const EDGE_VOICES = [
+  { name: "en-US-BrianMultilingualNeural", description: "male, warm cinematic narrator · Edge Neural, free" },
+  { name: "en-US-AndrewMultilingualNeural", description: "male, expressive storyteller · Edge Neural, free" },
+  { name: "en-US-ChristopherNeural", description: "male, deep trailer/noir authority · Edge Neural, free" },
+  { name: "en-US-AvaMultilingualNeural", description: "female, natural cinematic lead · Edge Neural, free" },
+  { name: "en-US-EmmaMultilingualNeural", description: "female, warm mature narrator · Edge Neural, free" },
+  { name: "en-US-AriaNeural", description: "female, crisp dramatic delivery · Edge Neural, free" },
+];
+
+export async function speakWithEdge(text: string, voice: string, target: string): Promise<{ output: string; duration: number }> {
+  const resolvedVoice = /Neural$/i.test(voice) ? voice : (EDGE_VOICE_MAP[voice.toLowerCase()] ?? "en-US-BrianMultilingualNeural");
+  const stem = target.replace(/\.\w+$/, "");
+  const rawMp3 = `${stem}.edge.mp3`;
+  const lineFile = `${stem}.line.txt`;
+  writeFileSync(lineFile, text, "utf8");
+  try {
+    await run("python", ["-m", "edge_tts", "--voice", resolvedVoice, "--file", lineFile, "--write-media", rawMp3], { timeout: 120_000 });
+  } finally {
+    rmSync(lineFile, { force: true });
+  }
+  await run(FFMPEG, [
+    "-y",
+    "-i",
+    rawMp3,
+    "-af",
+    "highpass=f=90,equalizer=f=3200:width_type=h:width=1000:g=3.0,acompressor=threshold=-18dB:ratio=3:attack=5:release=120,loudnorm=I=-16:TP=-1.5:LRA=11",
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    target,
+  ]);
+  rmSync(rawMp3, { force: true });
+  const { stdout } = await run(FFPROBE, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", target]);
+  return { output: target, duration: Number(stdout.trim()) };
+}
+
 export async function localVoices(): Promise<{ name: string; description: string }[]> {
   if (IS_WIN) {
     try {
       const out = powershell(
         "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo.Name + '|' + $_.VoiceInfo.Culture.Name }",
       );
-      return out
+      const winVoices = out
         .split(/\r?\n/)
         .map((l) => l.trim().split("|"))
         .filter(([name, culture]) => name && /^en-/i.test(culture ?? ""))
-        .map(([name, culture]) => ({ name, description: `${culture} · Windows, free` }));
+        .map(([name, culture]) => ({ name, description: `${culture} · Windows SAPI, free` }));
+      return [...EDGE_VOICES, ...winVoices];
     } catch {
-      return [];
+      return EDGE_VOICES;
     }
   }
   const { stdout } = await run(SAY, ["-v", "?"], { maxBuffer: 4 * 1024 * 1024 }).catch(() => ({ stdout: "" }));
@@ -99,17 +155,23 @@ export async function localVoices(): Promise<{ name: string; description: string
     .filter((v) => !/^(Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Albert|Fred|Grandma|Grandpa|Junior|Kathy|Princess|Ralph|Rocko|Shelley|Sandy|Eddy|Flo|Reed|Rishi)/.test(v.name));
 }
 
-// Speaks a line with this computer's own voice. Free and instant, but only as good as the installed voice.
+// Speaks a line with Edge Neural TTS (first choice on Windows) or the computer's built-in SAPI/say fallback.
 export async function speakLocally(text: string, voice: string, target: string): Promise<{ output: string; duration: number }> {
+  if (IS_WIN && !/^Microsoft\s+/i.test(voice)) {
+    try {
+      return await speakWithEdge(text, voice, target);
+    } catch {
+      // Fall back to Windows SAPI if edge-tts is unavailable or offline.
+    }
+  }
   const stem = target.replace(/\.\w+$/, "");
   const raw = stem + (IS_WIN ? ".wav" : ".aiff");
   if (IS_WIN) {
-    // The line goes through a file, never the command line, so quotes or symbols in it cannot break the script.
     const lineFile = stem + ".line.txt";
     writeFileSync(lineFile, text, "utf8");
     try {
       powershell(
-        `Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.SelectVoice(${psQuote(voice)}); $s.SetOutputToWaveFile(${psQuote(raw)}); $s.Speak([System.IO.File]::ReadAllText(${psQuote(lineFile)}, [System.Text.Encoding]::UTF8)); $s.Dispose()`,
+        `Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $want = ${psQuote(voice)}; $v = ($s.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Name -like "*$want*" } | Select-Object -First 1); if ($v) { $s.SelectVoice($v.VoiceInfo.Name) }; $s.SetOutputToWaveFile(${psQuote(raw)}); $s.Speak([System.IO.File]::ReadAllText(${psQuote(lineFile)}, [System.Text.Encoding]::UTF8)); $s.Dispose()`,
         300_000,
       );
     } finally {
@@ -126,62 +188,113 @@ export async function speakLocally(text: string, voice: string, target: string):
 
 // Joins the scene clips into one film, keeping their own sound and laying music / voiceover on top.
 export async function assemble(o: AssembleOptions): Promise<{ output: string; clips: string[]; duration: number; held_last_frame: number }> {
-  // Clips can now come from anywhere, so the project folder the film is saved into may not exist yet.
   if (o.clips?.length) mkdirSync(o.dir, { recursive: true });
   const out = join(o.dir, o.output_name.replace(/[^\w.-]+/g, "_").replace(/(\.mp4)?$/, ".mp4"));
   const clips = (o.clips?.length ? o.clips : defaultClips(o.dir)).filter((c) => c !== out);
   if (!clips.length) throw new Error(`No clips found in ${o.dir}. Generate or download a clip first, or pass clips explicitly.`);
   for (const f of [...clips, o.music, o.voiceover]) if (f && !existsSync(f)) throw new Error(`File not found: ${f}`);
 
-  let infos = await Promise.all(clips.map(probe));
-  // A narration longer than the footage would be cut off, so the last frame is held until the voice finishes.
+  const infos = await Promise.all(clips.map(probe));
+  const cutTransitions: TransitionType[] = [];
+  for (let i = 0; i < clips.length - 1; i++) {
+    cutTransitions.push(o.transitions?.[i] ?? o.transition ?? "none");
+  }
+  const trimChained = o.trim_chained_first_frame !== false;
+  const trimSec = 0.042; // 1 frame at 24fps removed from start of I2V-chained hard-cut clips
+  const effectiveDurations = infos.map((info, i) => {
+    const trimmed = i > 0 && cutTransitions[i - 1] === "none" && trimChained ? trimSec : 0;
+    return Math.max(0.5, info.duration - trimmed);
+  });
+
+  const tDur = Math.min(o.transition_duration ?? 0.5, Math.min(...effectiveDurations) * 0.4);
+  const xfadeCount = cutTransitions.filter((t) => t !== "none").length;
+  const rawTotal = effectiveDurations.reduce((sum, d) => sum + d, 0) - xfadeCount * tDur;
+
   let hold = 0;
   if (o.hold_last_frame !== false && o.voiceover) {
     const { stdout } = await run(FFPROBE, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", o.voiceover]);
-    hold = Math.max(0, Number(stdout.trim()) + 0.6 - infos.reduce((sum, i) => sum + i.duration, 0));
+    hold = Math.max(0, Number(stdout.trim()) + 0.6 - rawTotal);
   }
-  // Size the film to the biggest clip so a 720p opener cannot pull a 1080p clip down with it.
   const { width, height } = infos.reduce((a, b) => (b.width * b.height > a.width * a.height ? b : a));
   const args: string[] = ["-y"];
   for (const clip of clips) args.push("-i", clip);
   const filters: string[] = [];
-  // The clips' own sound used to play at full volume no matter what, drowning a narration laid on top. Music already
-  // had its own level; the clips now do too.
   const clipVolume = Math.min(1, Math.max(0, o.clip_volume ?? 1));
   infos.forEach((info, i) => {
+    const doTrim = i > 0 && cutTransitions[i - 1] === "none" && trimChained;
+    const vTrim = doTrim ? `trim=start=${trimSec},setpts=PTS-STARTPTS,` : "";
+    const aTrim = doTrim ? `atrim=start=${trimSec},asetpts=PTS-STARTPTS,` : "";
     const freeze = hold > 0.05 && i === infos.length - 1 ? `,tpad=stop_mode=clone:stop_duration=${hold.toFixed(2)}` : "";
     filters.push(
-      `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24${freeze}[v${i}]`,
+      `[${i}:v]${vTrim}scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,settb=AVTB,format=yuv420p${freeze}[v${i}]`,
     );
     filters.push(
       info.hasAudio
-        ? `[${i}:a]aresample=48000,aformat=channel_layouts=stereo,volume=${clipVolume}${hold > 0.05 && i === infos.length - 1 ? `,apad=pad_dur=${hold.toFixed(2)}` : ""}[a${i}]`
-        : `anullsrc=r=48000:cl=stereo,atrim=duration=${(info.duration + (i === infos.length - 1 ? hold : 0)).toFixed(2)}[a${i}]`,
+        ? `[${i}:a]${aTrim}aresample=48000,aformat=channel_layouts=stereo,volume=${clipVolume}${hold > 0.05 && i === infos.length - 1 ? `,apad=pad_dur=${hold.toFixed(2)}` : ""}[a${i}]`
+        : `anullsrc=r=48000:cl=stereo,atrim=duration=${(effectiveDurations[i] + (i === infos.length - 1 ? hold : 0)).toFixed(3)}[a${i}]`,
     );
   });
-  filters.push(`${infos.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${clips.length}:v=1:a=1[v][clipaudio]`);
 
-  const mix = ["[clipaudio]"];
+  if (xfadeCount === 0) {
+    filters.push(`${infos.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${clips.length}:v=1:a=1[v][clipaudio]`);
+  } else {
+    let curV = "[v0]";
+    let curA = "[a0]";
+    let curDur = effectiveDurations[0];
+    for (let i = 0; i < clips.length - 1; i++) {
+      const t = cutTransitions[i];
+      const outV = i === clips.length - 2 ? "[v]" : `[vx${i + 1}]`;
+      const outA = i === clips.length - 2 ? "[clipaudio]" : `[ax${i + 1}]`;
+      if (t === "none") {
+        filters.push(`${curV}[v${i + 1}]concat=n=2:v=1:a=0,fps=24,settb=AVTB${outV}`);
+        filters.push(`${curA}[a${i + 1}]concat=n=2:v=0:a=1,aresample=48000${outA}`);
+        curDur += effectiveDurations[i + 1];
+      } else {
+        const offset = Math.max(0.05, curDur - tDur);
+        filters.push(`${curV}[v${i + 1}]xfade=transition=${t}:duration=${tDur.toFixed(3)}:offset=${offset.toFixed(3)},fps=24,settb=AVTB${outV}`);
+        filters.push(`${curA}[a${i + 1}]acrossfade=d=${tDur.toFixed(3)}:c1=exp:c2=exp${outA}`);
+        curDur = curDur + effectiveDurations[i + 1] - tDur;
+      }
+      curV = outV;
+      curA = outA;
+    }
+  }
+
   let input = clips.length;
-  if (o.music) {
+  const duck = o.sidechain_ducking !== false;
+  if (o.music && o.voiceover && duck) {
     args.push("-stream_loop", "-1", "-i", o.music);
-    filters.push(`[${input}:a]aresample=48000,aformat=channel_layouts=stereo,volume=${o.music_volume}[music]`);
-    mix.push("[music]");
-    input++;
-  }
-  if (o.voiceover) {
+    const musicIdx = input++;
     args.push("-i", o.voiceover);
-    filters.push(`[${input}:a]aresample=48000,aformat=channel_layouts=stereo[vo]`);
-    mix.push("[vo]");
+    const voIdx = input++;
+    filters.push(`[${musicIdx}:a]aresample=48000,aformat=channel_layouts=stereo,volume=${o.music_volume}[music_raw]`);
+    filters.push(`[${voIdx}:a]aresample=48000,aformat=channel_layouts=stereo,highpass=f=100,equalizer=f=3200:width_type=h:width=1000:g=3.5,asplit=2[vo_sc][vo_main]`);
+    filters.push(`[music_raw][vo_sc]sidechaincompress=threshold=0.015:ratio=10:attack=20:release=300[music_ducked]`);
+    filters.push(`[clipaudio][music_ducked][vo_main]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,loudnorm=I=-16:TP=-1.0:LRA=11[a]`);
+  } else {
+    const mix = ["[clipaudio]"];
+    if (o.music) {
+      args.push("-stream_loop", "-1", "-i", o.music);
+      filters.push(`[${input}:a]aresample=48000,aformat=channel_layouts=stereo,volume=${o.music_volume}[music]`);
+      mix.push("[music]");
+      input++;
+    }
+    if (o.voiceover) {
+      args.push("-i", o.voiceover);
+      const eq = duck ? ",highpass=f=100,equalizer=f=3200:width_type=h:width=1000:g=3.5" : "";
+      filters.push(`[${input}:a]aresample=48000,aformat=channel_layouts=stereo${eq}[vo]`);
+      mix.push("[vo]");
+    }
+    const norm = duck ? ",loudnorm=I=-16:TP=-1.0:LRA=11" : "";
+    filters.push(mix.length > 1 ? `${mix.join("")}amix=inputs=${mix.length}:duration=first:dropout_transition=0:normalize=0${norm}[a]` : `[clipaudio]anull${norm}[a]`);
   }
-  filters.push(mix.length > 1 ? `${mix.join("")}amix=inputs=${mix.length}:duration=first:dropout_transition=0:normalize=0[a]` : "[clipaudio]anull[a]");
 
   const output = out;
   args.push(
     "-filter_complex", filters.join(";"),
     "-map", "[v]", "-map", "[a]",
-    "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p",
-    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+    "-c:v", "libx264", "-crf", "14", "-preset", "slow", "-tune", "film", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-ar", "48000", "-b:a", "256k", "-movflags", "+faststart",
     output,
   );
   try {
@@ -190,5 +303,5 @@ export async function assemble(o: AssembleOptions): Promise<{ output: string; cl
     const e = err as NodeJS.ErrnoException & { stderr?: string };
     throw new Error(e.code === "ENOENT" ? `ffmpeg is not installed (${FFMPEG_HINT}).` : `ffmpeg failed: ${(e.stderr ?? String(e)).slice(-600)}`);
   }
-  return { output, clips, duration: infos.reduce((sum, i) => sum + i.duration, 0) + hold, held_last_frame: Number(hold.toFixed(2)) };
+  return { output, clips, duration: Number((rawTotal + hold).toFixed(2)), held_last_frame: Number(hold.toFixed(2)) };
 }

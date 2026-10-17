@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
-import { assemble, localVoices, speakLocally } from "./assemble.js";
+import { assemble, localVoices, speakLocally, speakWithEdge } from "./assemble.js";
 import { GEMINI_VOICES, geminiKey, saveGeminiKey, speakWithGemini } from "./gemini.js";
 import { extractLastFrame } from "./chain.js";
 import { characterLook, createCharacter, downloadAsset, trashAsset, editCharacter, getFlowState, listAssets, listCharacters, rememberCharacter, runAgentBatch, runContinue, runEdit, runGeneration } from "./flow.js";
@@ -10,10 +10,10 @@ import { JobQueue, type Job } from "./queue.js";
 import { BIN, COMPUTER, IS_MAC, IS_WIN, moveToBin } from "./platform.js";
 import { TECHNIQUES, techniqueById } from "./techniques.js";
 
-export const OUTPUT_ROOT = process.env.FLOW_MCP_OUTPUT ?? join(homedir(), "flow-mcp-out");
+export const OUTPUT_ROOT = process.env.FLOW_MCP_OUTPUT ?? join(homedir(), "Projects", "Antigravity", "GFlow", "output");
 const words = (s: string) => s.split(/[^a-z0-9]+/i).filter((w) => w.length > 3).map((w) => w.toLowerCase());
 
-export const projectDir = (project: string) => resolve(OUTPUT_ROOT, project.replace(/[^\w.-]+/g, "_"));
+export const projectDir = (project: string) => resolve(process.env.FLOW_MCP_OUTPUT ?? OUTPUT_ROOT, project.replace(/[^\w.-]+/g, "_"));
 
 const sceneSchema = z.object({
   prompt: z.string().min(1).describe("Full English prompt for one clip: action, shot and camera move, location, style, light, sound."),
@@ -47,6 +47,11 @@ const sceneSchema = z.object({
     .boolean()
     .optional()
     .describe("Continue the previous scene in this call: its last frame becomes this scene's first frame. Not valid on the first scene or together with first_frame."),
+  file_stem: z
+    .string()
+    .regex(/^[\w.-]{1,80}$/)
+    .optional()
+    .describe("Optional custom output filename stem (without extension), e.g. 'RELIC_CHAR_LYRA_MASTER_V001' or 'SC01_SH01'. Defaults to scene-NN."),
 });
 
 // Raw shapes double as MCP input schemas and, wrapped in z.object, as HTTP body validators.
@@ -82,6 +87,28 @@ export const shapes = {
     voiceover: z.string().optional().describe("Absolute path to a voiceover audio file, starts at 0:00."),
     output_name: z.string().default("final"),
     hold_last_frame: z.boolean().default(true).describe("Freeze the final frame so a longer voiceover is not cut off."),
+    transition: z
+      .enum(["none", "fade", "fadeblack", "fadewhite", "smoothleft", "smoothright", "dissolve"])
+      .default("none")
+      .describe("Default transition between clips ('none' for seamless hard cuts between I2V-chained shots, or 'fade', 'fadeblack', 'dissolve', etc.)."),
+    transitions: z
+      .array(z.enum(["none", "fade", "fadeblack", "fadewhite", "smoothleft", "smoothright", "dissolve"]))
+      .optional()
+      .describe("Optional per-cut transition array (length = clips.length - 1). Use 'none' between continuous I2V shots within a scene and 'fade' or 'fadeblack' between different scenes."),
+    transition_duration: z
+      .number()
+      .min(0.1)
+      .max(2.0)
+      .default(0.5)
+      .describe("Duration in seconds for xfade transitions when transition is not 'none'."),
+    trim_chained_first_frame: z
+      .boolean()
+      .default(true)
+      .describe("When true, removes 1 duplicate start frame (0.042s at 24fps) on 'none' hard cuts so I2V-chained continuations play as an unbroken single take."),
+    sidechain_ducking: z
+      .boolean()
+      .default(true)
+      .describe("When true, applies broadcast vocal EQ (100Hz highpass + 3.2kHz presence boost), sidechain compression ducking on music under voiceover, and EBU R128 (-16 LUFS) loudness normalization."),
   },
   agent: {
     project: z.string().min(1).describe("Folder name for the downloaded images."),
@@ -93,13 +120,13 @@ export const shapes = {
   narrate: {
     project: z.string().min(1).describe("Folder for the narration audio."),
     engine: z
-      .enum(["gemini", "mac"])
-      .default("gemini")
+      .enum(["edge", "gemini", "mac"])
+      .default("edge")
       .describe(
-        "'gemini' uses Google AI Studio's text-to-speech - the same voices Flow has, free on the AI Studio tier, no length limit, needs a key in ~/.flow-mcp/gemini-key. 'mac' uses a voice installed on this computer (macOS voices on a Mac, the built-in speech voices on Windows): free, instant, no key.",
+        "'edge' uses Microsoft Edge Neural TTS (en-US-BrianMultilingualNeural, en-US-AndrewMultilingualNeural, en-US-AvaMultilingualNeural, etc.): studio-grade neural voices, free, no API key needed, no length limit. 'gemini' uses Google AI Studio TTS (needs ~/.flow-mcp/gemini-key). 'mac' uses system voices.",
       ),
-    text: z.string().min(1).max(400).describe("The line to speak. About 20 words fits 8 s, 30 words fits 12 s; anything longer needs a longer take."),
-    voice: z.string().min(1).default("Charon").describe("Voice name from flow_voices, e.g. Charon (informative), Aoede (breezy), Gacrux (mature) for Google; Zoe or Samantha for macOS."),
+    text: z.string().min(1).max(6000).describe("The narration script to speak (supports both single 8s lines and full multi-minute film voiceovers)."),
+    voice: z.string().min(1).default("Charon").describe("Voice name, e.g. 'en-US-BrianMultilingualNeural', 'en-US-AndrewMultilingualNeural', 'en-US-AvaMultilingualNeural', or Flow names like 'Charon', 'Fenrir', 'Aoede', 'Gacrux'."),
     style: z.string().max(200).optional().describe("Delivery note for the 'gemini' engine, e.g. 'slowly and warmly, like a documentary narrator'."),
   },
   edit: {
@@ -131,6 +158,16 @@ export const shapes = {
       .literal(true)
       .describe("Must be true. Agent mode shows no credit quote before it runs, so max_credits cannot protect you; the real cost is reported on the finished job."),
     download_quality: z.enum(["original", "upscaled"]).optional(),
+    model: z
+      .string()
+      .default("Veo 3.1 - Lite")
+      .optional()
+      .describe("Video model in Agent settings for the continuation shot, e.g. 'Veo 3.1 - Lite' (5 credits), 'Omni 1.1 Flash', 'Veo 3.1 - Fast', 'Veo 3.1 - Quality'."),
+    file_stem: z
+      .string()
+      .regex(/^[\w.-]{1,80}$/)
+      .optional()
+      .describe("Optional custom output filename stem (without extension), e.g. 'SC01_SH02'."),
     force: z
       .boolean()
       .optional()
@@ -281,7 +318,7 @@ export class LocalCore implements Core {
     const queued = this.queue.list().filter((j) => j.params.output_dir === output_dir).map((j) => Number(j.params.file_stem.match(/\d+/)?.[0] ?? 0));
     const offset = Math.max(0, ...onDisk, ...queued);
     const jobs: Job[] = [];
-    for (const [i, { chain_previous, reference_previous, technique, ...scene }] of scenes.entries()) {
+    for (const [i, { chain_previous, reference_previous, technique, file_stem, ...scene }] of scenes.entries()) {
       const phrase = technique ? techniqueById(technique)!.phrase : "";
       // A referenced character must come out identical, not merely similar, so the scene says so explicitly. The
       // wording stays medium-neutral: the same lock has to serve a flat cartoon character and a photoreal avatar.
@@ -297,14 +334,18 @@ export class LocalCore implements Core {
       const inherit = reference_previous
         ? " Match the previous image exactly for the subject's appearance, colour palette, lighting and rendering style; this is the same scene a moment later."
         : "";
+      const isStylized = /\b(cartoon|anime|2d|3d animation|pixar|illustration|cel[- ]shaded|comic|claymation|pixel art)\b/i.test(scene.prompt);
+      const skinRealism = !isStylized
+        ? " SKIN & COLOR REALISM LOCK — Render authentic, unretouched human skin micro-texture with visible fine pores, natural subsurface scattering, subtle micro-creases, and true-to-life original human skin tone under neutral 5600K color balance; never apply plastic CGI smoothing, waxy airbrushing, beauty filters, or artificial orange/teal skin color casts."
+        : "";
       jobs.push(
         this.queue.add({
           ...scene,
-          prompt: `${scene.prompt.trim().replace(/\.?$/, ".")}${phrase ? ` ${phrase}` : ""}${lock}${inherit}`,
+          prompt: `${scene.prompt.trim().replace(/\.?$/, ".")}${phrase ? ` ${phrase}` : ""}${lock}${inherit}${skinRealism}`,
           chain_from: chain_previous ? jobs[i - 1].id : undefined,
           reference_from: reference_previous ? jobs[i - 1].id : undefined,
           output_dir,
-          file_stem: `scene-${String(offset + i + 1).padStart(2, "0")}`,
+          file_stem: file_stem ?? `scene-${String(offset + i + 1).padStart(2, "0")}`,
         }),
       );
     }
@@ -338,7 +379,7 @@ export class LocalCore implements Core {
     return { jobs: jobs.map(jobView) };
   }
 
-  async assets({ kind }: Args<"assets">) {
+  async assets({ kind }: Partial<Args<"assets">> = {}) {
     if (this.queue.busy) throw new Error(BUSY);
     return (await listAssets()).filter((a) => !kind || a.kind === kind).map(({ name, kind }) => ({ name, kind }));
   }
@@ -412,15 +453,15 @@ export class LocalCore implements Core {
   }
 
   // Flow's composer takes a start frame OR a character, never both; agent mode takes both, so this goes that way.
-  async continue_shot({ project, from_asset, prompt, attach, aspect_ratio, mode, download_quality, force }: Args<"continue_shot">) {
-    // A lost queue entry is not proof that nothing ran: when the owner process is replaced mid-job the job vanishes
-    // while Flow carries on and charges for it. Re-running then spends twice, which is exactly what happened on
-    // 2026-09-20. Flow's own grid is the only honest record, so ask it before starting another paid generation.
+  async continue_shot({ project, from_asset, prompt, action, attach, aspect_ratio, mode, download_quality, model, file_stem, force }: Args<"continue_shot"> & { action?: string }) {
+    const actualPrompt = prompt ?? action ?? "";
+    const projPrefix = project ? `${project.toLowerCase()}-` : "";
+    const stripPrefix = (s: string) => (projPrefix && s.startsWith(projPrefix) ? s.slice(projPrefix.length) : s);
     if (!force) {
       const recent = (await listAssets()).slice(0, 6).filter((a) => a.kind === "video");
-      const source = from_asset.toLowerCase();
+      const source = stripPrefix(from_asset.toLowerCase());
       const echo = recent.find((a) => {
-        const n = a.name.toLowerCase();
+        const n = stripPrefix(a.name.toLowerCase());
         return n !== source && !n.startsWith(source) && words(n).some((w) => words(source).includes(w));
       });
       if (echo) {
@@ -431,9 +472,14 @@ export class LocalCore implements Core {
       }
     }
     const output_dir = projectDir(project);
+    const cast = (attach ?? []).map((r) => r.replace(/^asset:/i, "").trim()).filter((n) => characterLook(n) !== undefined);
+    const lock = cast.length
+      ? ` DNA LOCK — ${cast.map((n) => `${n} must match its reference image and description exactly (${characterLook(n)})`).join("; ")}.`
+      : "";
     const job = this.queue.add({
-      prompt,
+      prompt: `${actualPrompt.trim().replace(/\.?$/, ".")}${lock}`,
       type: "video",
+      model: model ?? "Veo 3.1 - Lite",
       max_credits: 0,
       continue_from: from_asset,
       attach,
@@ -441,7 +487,7 @@ export class LocalCore implements Core {
       aspect_ratio,
       download_quality,
       output_dir,
-      file_stem: this.nextStem(output_dir, "shot"),
+      file_stem: file_stem ?? this.nextStem(output_dir, "shot"),
     });
     return { output_dir, jobs: [jobView(job)] };
   }
@@ -500,8 +546,13 @@ export class LocalCore implements Core {
     const output_dir = projectDir(project);
     mkdirSync(output_dir, { recursive: true });
     const target = join(output_dir, `${this.nextStem(output_dir, "narration")}.m4a`);
-    const spoken = engine === "mac" ? await speakLocally(text.trim(), voice, target) : await speakWithGemini(text.trim(), voice, target, style);
-    return { output_dir, credits: 0, engine, voice, ...spoken };
+    const useEdge = engine === "edge" || (engine === "gemini" && !geminiKey());
+    const spoken = useEdge
+      ? await speakWithEdge(text.trim(), voice, target)
+      : engine === "mac"
+        ? await speakLocally(text.trim(), voice, target)
+        : await speakWithGemini(text.trim(), voice, target, style);
+    return { output_dir, credits: 0, engine: useEdge ? "edge" : engine, voice, ...spoken };
   }
 
   async techniques({ category }: Args<"techniques">) {

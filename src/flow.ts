@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import type { Locator, Page } from "playwright-core";
 import { HOME_DIR, getFlowPage, inEnglish } from "./chrome.js";
+import { extractLastFrame } from "./chain.js";
 import type { Job } from "./queue.js";
 import { extractZip } from "./platform.js";
 
@@ -76,12 +77,30 @@ async function pickAgentImageModel(page: Page): Promise<void> {
   await clearBackdrops(page);
 }
 
+// Sets the agent's default video model (e.g. 'Veo 3.1 - Lite', 'Veo 3.1 - Fast', 'Veo 3.1 - Quality', 'Omni 1.1 Flash').
+async function pickAgentVideoModel(page: Page, videoModel?: string): Promise<void> {
+  if (!videoModel) return;
+  const button = page.locator("flow-agent-panel").getByRole("button", { name: "Video generation default model" });
+  if (!(await button.isVisible().catch(() => false))) return;
+  const shown = (await button.innerText().catch(() => "")).replace(/\s+/g, " ");
+  if (shown.toLowerCase().includes(videoModel.toLowerCase())) return;
+  await button.click({ timeout: 5000 }).catch(() => {});
+  const items = page.getByRole("menuitem");
+  if (!(await items.first().isVisible().catch(() => false))) await items.first().waitFor({ state: "visible", timeout: 4000 }).catch(() => {});
+  const names = (await items.allInnerTexts().catch(() => [] as string[])).map((t) => t.replace(/\s+/g, " ").trim());
+  const index = names.findIndex((n) => n.toLowerCase().includes(videoModel.toLowerCase()));
+  if (index >= 0) await items.nth(index).click({ timeout: 4000 }).catch(() => {});
+  else await page.keyboard.press("Escape");
+  await pause(page, 400);
+  await clearBackdrops(page);
+}
+
 // The agent settings panel replaces the composer, hiding the Agent button; Back closes it without saving.
 async function closeAgentSettings(page: Page): Promise<void> {
   const back = page.locator("flow-agent-panel").getByRole("button", { name: "Back", exact: true });
   if (await back.isVisible().catch(() => false)) {
     await clearBackdrops(page);
-    await back.click({ timeout: 5000 }).catch(() => {});
+    await back.click({ force: true, timeout: 5000 }).catch(() => {});
     await pause(page, 800);
   }
 }
@@ -109,6 +128,7 @@ const settingsTrigger = (page: Page) => page.getByRole("button", { name: "Settin
 // Video tiles at rest expose neither, and their signed thumbnail URL is re-signed over time - using it as a handle
 // made old tiles look new. Titles are stable, so an id-less tile is identified by its title instead.
 const TILE_ID_JS = `(tile) => {
+  if (tile.querySelector("flow-error-tile")) return undefined;
   const media = tile.querySelector("img[data-media-id], video[data-media-id], img[src], video[src]");
   const id = media && (media.getAttribute("data-media-id") || media.getAttribute("src")?.match(/[0-9a-f]{8}-[0-9a-f-]{27}/)?.[0]);
   if (id) return id;
@@ -250,7 +270,8 @@ export async function freshMedia(page: Page, before: string[], kind?: MediaKind)
         // user's clip. A video without its thumbnail counts as busy.
         busy:
           /\d+%/.test((t as HTMLElement).innerText) ||
-          (!!t.querySelector("flow-video-tile") && !t.querySelector('img[alt="Generated video thumbnail"], video')),
+          (!!t.querySelector("flow-video-tile") && !t.querySelector('img[alt="Generated video thumbnail"], video')) ||
+          (!!t.querySelector("flow-image-tile") && !t.querySelector("img[data-media-id], img[src]")),
       }));
     },
     TILE_ID_JS,
@@ -445,9 +466,9 @@ export async function attachAsset(page: Page, opener: Locator, assetName: string
   }
   await list.waitFor({ state: "visible", timeout: 10_000 });
   let option = optionByName(list, assetName);
-  // Voices, characters and avatars live behind their own tabs, so look there when "All" does not have it.
+  // Images, videos, voices, characters, avatars, and uploads live behind their own tabs when "All" (capped at 15 recent items) does not show them.
   if (!(await option.isVisible().catch(() => false))) {
-    for (const tab of ["Voices", "Characters", "Avatars", "Uploads"]) {
+    for (const tab of ["Images", "Uploads", "Characters", "Videos", "Voices", "Avatars"]) {
       const t = page.getByRole("tab", { name: tab, exact: true });
       if (!(await t.isVisible().catch(() => false))) continue;
       await t.click();
@@ -665,7 +686,11 @@ async function downloadTile(page: Page, target: Locator | TileResolver, targetSt
       // Size submenu: "720p Original size" / "1K Original size", or the best upscale the plan allows.
       const original = page.getByRole("menuitem", { name: /original/i }).first();
       if (await original.waitFor({ state: "visible", timeout: 3000 }).then(() => true, () => false)) {
-        const upscaled = page.locator('[role="menuitem"]:not([aria-disabled="true"]):not([disabled])').filter({ hasText: /upscaled/i }).first();
+        const upscaled = page
+          .locator('[role="menuitem"]:not([aria-disabled="true"]):not([disabled])')
+          .filter({ hasText: /upscaled/i })
+          .filter({ hasNotText: /credits/i })
+          .first();
         const wanted = quality === "upscaled" && (await upscaled.isVisible().catch(() => false)) ? upscaled : original;
         await wanted.click();
       }
@@ -1122,7 +1147,7 @@ export async function createCharacter(c: CharacterParams, job?: Job): Promise<{ 
       ...(job ?? ({ id: "char", status: "running", files: [], attempts: 1, createdAt: "" } as unknown as Job)),
       files: [],
       params: {
-        prompt: c.describe,
+        prompt: `${c.describe.trim().replace(/\.?$/, ".")} Unretouched raw ARRI Alexa Mini LF 35mm portrait photography on a solid flat neutral mid-grey studio backdrop (#808080) with zero background scenery or environment. Authentic true-to-life human skin tone under neutral 5600K daylight balance, real unretouched skin micro-texture with visible fine pores, natural subsurface scattering, subtle vellus hair and natural skin imperfections, zero airbrushing, zero beauty filter, zero plastic or waxy CGI smoothing. Neutral character reference portrait, relaxed neutral posture, empty hands with no handheld props or objects, clean unobstructed view of face and wardrobe, facing the camera. Exactly one character in the frame.`,
         type: "image",
         max_credits: 0,
         aspect_ratio: (c.aspect_ratio as "3:4") ?? "3:4",
@@ -1293,21 +1318,24 @@ async function setAgentMode(page: Page, on: boolean): Promise<void> {
 }
 
 // "Never" lets the agent generate without asking; it is switched back to "Always" as soon as the batch ends.
-async function setAgentSettings(page: Page, confirm: "Always" | "Never", imageAspect?: string): Promise<void> {
+async function setAgentSettings(page: Page, confirm: "Always" | "Never", imageAspect?: string, videoModel?: string): Promise<void> {
   // Scoped to the prompt box: Flow added a second "Settings" button to the top bar ("View settings", seen 2026-10-13),
   // and an unscoped lookup matched both and failed every agent batch.
   await clearBackdrops(page);
   await page.locator("flow-base-prompt-box").getByRole("button", { name: "Settings", exact: true }).click();
   try {
     await page.getByRole("heading", { name: "Agent settings" }).waitFor({ state: "visible", timeout: 8000 });
-    await page.getByRole("radio", { name: new RegExp(`^${confirm}`) }).click();
+    await page.getByRole("radio", { name: new RegExp(`^${confirm}`) }).click({ force: true, timeout: 5000 });
     if (imageAspect) {
-      await page.getByRole("radio", { name: imageAspect, exact: true }).first().click();
-      await page.getByRole("radio", { name: "x1", exact: true }).first().click();
+      await page.getByRole("radio", { name: imageAspect, exact: true }).first().click({ force: true, timeout: 5000 });
+      await page.getByRole("radio", { name: "x1", exact: true }).first().click({ force: true, timeout: 5000 });
       await pickAgentImageModel(page);
     }
+    if (videoModel) {
+      await pickAgentVideoModel(page, videoModel);
+    }
     await pause(page, 300);
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click({ force: true, timeout: 5000 });
     await pause(page, 1200);
   } finally {
     // Saved or not, never leave the panel covering the composer: the next step needs the Agent button.
@@ -1498,6 +1526,28 @@ export async function runContinue(job: Job): Promise<string[]> {
   const source = (await scanGrid(page, (assets) => assets.some(matches))).find(matches);
   if (!source) throw new Error(`No video whose title starts with "${s.continue_from}". Use flow_assets to list titles.`);
 
+  if (s.continue_mode !== "likeness") {
+    // High-Resolution Native Composer Frames Mode (Agent OFF):
+    // Instead of using Flow's 720p web-player "Save frame" + Agent Mode (which rewrites the prompt and degrades
+    // image sharpness and skin tone on Hop 1+), download the 1080p upscaled source video (0 credits), extract its
+    // final frame as a lossless 1920x1080 PNG, and run directly in the native Composer 'Start' frame slot.
+    job.progress = "downloading 1080p source for lossless frame extraction";
+    mkdirSync(s.output_dir, { recursive: true });
+    const tmpStem = join(s.output_dir, `_src1080p_${source.name.replace(/[^\w.-]+/g, "_")}`);
+    const srcFiles = await downloadTile(page, tileOf(page, source), tmpStem, "upscaled");
+    const lastFramePng = await extractLastFrame(srcFiles[0]);
+    return runGeneration({
+      ...job,
+      params: {
+        ...s,
+        max_credits: s.max_credits || 25,
+        first_frame: lastFramePng,
+        reference_images: [],
+        prompt: `${s.prompt.trim().replace(/\.?$/, ".")} Continue seamlessly from the opening frame with the exact same exposure, natural human skin tone, visible fine skin pore micro-texture, lighting, and color balance; never add extra contrast, saturation, bloom, or waxy skin smoothing, and never reset the subject's pose.`,
+      },
+    });
+  }
+
   try {
     // 1. Open the clip and park the playhead on its final frame, then let Flow save that frame as an image.
     job.progress = "saving the last frame";
@@ -1535,7 +1585,7 @@ export async function runContinue(job: Job): Promise<string[]> {
     }
 
     // 4. Agent mode asks for confirmation unless told not to, which would stall an unattended run.
-    await setAgentSettings(page, "Never", s.aspect_ratio ?? "16:9");
+    await setAgentSettings(page, "Never", s.aspect_ratio ?? "16:9", s.model);
     // Agent mode treats both chips as ingredients and decides what to do with them. Attaching the saved frame is not
     // enough - without being told, the agent reads it as a style reference and stages a fresh shot. It has to be told
     // in words that the frame IS the opening frame. (Cost 15 credits to learn on 2026-09-20.)
@@ -1547,11 +1597,13 @@ export async function runContinue(job: Job): Promise<string[]> {
     await typePrompt(
       page,
       (exact
-        ? `Use I2V, Flow's first frame animation tool. The attached frame is the FIRST FRAME of this clip: begin exactly ` +
-          `on it, with the same framing, lighting, colours, wardrobe and set, and continue from there with no cut, as an ` +
-          `unbroken continuation of the shot it came from. Do not use any other reference.`
+        ? `Use I2V, Flow's first frame animation tool. The attached frame is the FIRST FRAME of this clip: begin100% ` +
+          `on it, with the exact same framing, lighting, colours, wardrobe and set, and continue the action forward from ` +
+          `that exact moment with no cut, as an unbroken continuation of the shot it came from. Never reset the subject's ` +
+          `pose and never repeat an action that has already completed in the opening frame. Do not use any other reference.`
         : `Use R2V, reference-to-video, with the attached frame and ${cast || "the attached reference"} both as references, ` +
-          `so the look and the person stay consistent through the clip. Open as close to the attached frame as you can.`) +
+          `so the environment, lighting, timeline progression, and character identity stay consistent. Progress the action ` +
+          `forward from the state shown in the attached frame—do not reset the character back to their static portrait pose.`) +
         ` ${s.prompt}`,
     );
     const before = await mediaIds(page);
@@ -1569,8 +1621,8 @@ export async function runContinue(job: Job): Promise<string[]> {
       await typePrompt(
         page,
         exact
-          ? "Use I2V, first frame animation. Start exactly on that frame and continue from it with no cut. Do not use the other reference."
-          : "Use R2V, reference-to-video, using both attached references so the person stays consistent.",
+          ? "Use I2V, first frame animation. Start exactly on that frame and continue forward from it with no cut. Do not use the other reference."
+          : "Use R2V, reference-to-video, using both attached references so the person stays consistent while progressing the scene forward.",
       );
       await page.keyboard.press("Enter");
       await pause(page, 6000);
@@ -1580,7 +1632,13 @@ export async function runContinue(job: Job): Promise<string[]> {
     const fresh = await waitForNewMedia(page, before, 1, VIDEO_TIMEOUT_MS, job, "video");
     job.progress = undefined;
     mkdirSync(s.output_dir, { recursive: true });
-    const saved = await downloadMedia(page, fresh[0], join(s.output_dir, s.file_stem), s.download_quality);
+    const id = fresh[0];
+    const newTitle = `${basename(s.output_dir)}-${s.file_stem}`;
+    const renamed = await renameTile(page, mediaTile(page, id), newTitle).catch(() => false);
+    if (renamed) job.note = [job.note, `renamed in Flow to ${newTitle}`].filter(Boolean).join(" · ");
+    await pause(page, 800);
+    const handle = renamed && id.startsWith("title:") ? `title:${newTitle}` : id;
+    const saved = await downloadMedia(page, handle, join(s.output_dir, s.file_stem), s.download_quality);
     const after = await readCredits(page).catch(() => undefined);
     if (balance !== undefined && after !== undefined) job.credits = balance - after;
     return saved;

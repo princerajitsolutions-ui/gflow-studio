@@ -17,11 +17,12 @@ export const inEnglish = (url: string): string => {
 const FLOW_HOSTS = /^https:\/\/(flow\.google\.com|labs\.google\/fx)/;
 export const HOME_DIR = process.env.FLOW_MCP_HOME ?? join(homedir(), ".flow-mcp");
 export const PROFILE_DIR = join(HOME_DIR, "chrome-profile");
-export const CDP_PORT = Number(process.env.FLOW_MCP_CDP_PORT ?? 9333);
-const CDP_URL = `http://127.0.0.1:${CDP_PORT}`;
+export const CDP_PORT = Number(process.env.FLOW_MCP_CDP_PORT ?? 9110);
+const FALLBACK_CDP_PORT = 9333;
 
 const CHROME_PATHS = [
   process.env.FLOW_MCP_CHROME,
+  process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\BrowserClaw\\Application\\chrome.exe` : undefined,
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/usr/bin/google-chrome",
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -31,14 +32,25 @@ const CHROME_PATHS = [
 ].filter((p): p is string => Boolean(p));
 
 let browser: Browser | null = null;
+let activeCdpUrl = `http://127.0.0.1:${CDP_PORT}`;
 
-async function cdpUp(): Promise<boolean> {
+async function cdpUp(port = CDP_PORT): Promise<boolean> {
   try {
-    const res = await fetch(`${CDP_URL}/json/version`, { signal: AbortSignal.timeout(1500) });
-    return res.ok;
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1500) });
+    if (res.ok) {
+      activeCdpUrl = `http://127.0.0.1:${port}`;
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
+}
+
+async function findActiveCdp(): Promise<boolean> {
+  if (await cdpUp(CDP_PORT)) return true;
+  if (CDP_PORT !== FALLBACK_CDP_PORT && (await cdpUp(FALLBACK_CDP_PORT))) return true;
+  return false;
 }
 
 // Real Chrome with a dedicated profile: Google sign-in works normally and the
@@ -62,7 +74,7 @@ async function launchChrome(): Promise<void> {
   );
   child.unref();
   for (let i = 0; i < 40; i++) {
-    if (await cdpUp()) return;
+    if (await cdpUp(CDP_PORT)) return;
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(`Chrome started but CDP port ${CDP_PORT} never came up.`);
@@ -70,8 +82,8 @@ async function launchChrome(): Promise<void> {
 
 export async function getBrowser(): Promise<Browser> {
   if (browser?.isConnected()) return browser;
-  if (!(await cdpUp())) await launchChrome();
-  browser = await chromium.connectOverCDP(CDP_URL);
+  if (!(await findActiveCdp())) await launchChrome();
+  browser = await chromium.connectOverCDP(activeCdpUrl);
   return browser;
 }
 
@@ -79,7 +91,23 @@ export async function getFlowPage(): Promise<Page> {
   const b = await getBrowser();
   const context = b.contexts()[0];
   if (!context) throw new Error("Chrome has no browser context; restart the Flow Chrome window.");
-  const existing = context.pages().find((p) => FLOW_HOSTS.test(p.url()));
+  const pinnedId = process.env.FLOW_MCP_PROJECT_ID?.trim();
+  const flowPages = context.pages().filter((p) => FLOW_HOSTS.test(p.url()));
+  if (pinnedId) {
+    const pinned = flowPages.find((p) => p.url().includes(`/project/${pinnedId}`));
+    if (pinned) {
+      await ensureEnglish(pinned);
+      return pinned;
+    }
+    const page = await context.newPage();
+    await page.goto(inEnglish(`https://flow.google.com/project/${pinnedId}`), { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(3500);
+    await ensureEnglish(page);
+    return page;
+  }
+  const existing =
+    [...flowPages].reverse().find((p) => /\/project\//.test(p.url())) ??
+    flowPages[flowPages.length - 1];
   if (existing) {
     await ensureEnglish(existing);
     return existing;

@@ -5,11 +5,11 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 const FFMPEG = process.env.FLOW_MCP_FFMPEG ?? "ffmpeg";
 
-// Saves the final frame of a clip so the next scene can start exactly where this one ended.
+// Saves the final frame of a clip as a lossless PNG so the next scene starts with zero compression degradation.
 export async function extractLastFrame(video: string): Promise<string> {
-  const out = video.replace(/\.\w+$/, "") + "-lastframe.jpg";
+  const out = video.replace(/\.\w+$/, "") + "-lastframe.png";
   try {
-    await run(FFMPEG, ["-y", "-sseof", "-0.2", "-i", video, "-update", "1", "-q:v", "2", out]);
+    await run(FFMPEG, ["-y", "-sseof", "-0.08", "-i", video, "-frames:v", "1", "-update", "1", out]);
   } catch (err) {
     const reason = (err as NodeJS.ErrnoException).code === "ENOENT" ? `ffmpeg is not installed (${FFMPEG_HINT})` : String(err);
     throw new Error(`chain_previous needs ffmpeg to grab the previous clip's last frame: ${reason}`);

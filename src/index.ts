@@ -295,4 +295,6 @@ server.registerTool(
   (args) => reply(patient("flow_assemble", core.assemble(args))),
 );
 
-await server.connect(new StdioServerTransport());
+const transport = new StdioServerTransport();
+transport.onclose = () => process.exit(0);
+await server.connect(transport);
