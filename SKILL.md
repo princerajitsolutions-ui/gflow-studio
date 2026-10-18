@@ -127,9 +127,10 @@ Never use heavy orange/teal LUT prompts (such as `"Kodak 2383 color grade"` or `
      - **For Skill / Ability Shots:** `KF01_2K` captures the **Activation / Trigger State** (eye glow, stance, rune/UI ignition) and `KF02_2K` captures the **Manifestation / Impact State** (shadow eruption, weapon slash arc, telekinetic shockwave).
    - Inspect every `2K` keyframe via `view_file` and auto-heal via `flow_edit` if needed (`0` credits).
 2. **Stage B — `1080p` (`1920x1080`) Video Animation (`episodes/EP##/shots/`):**
-   - Animate in Native Composer `Frames` Mode (`Agent Mode` OFF, `model: "Veo 3.1 - Lite"`, `duration: 8`, `max_credits: 5`, `download_quality: "upscaled"` $\rightarrow$ `1920x1080` strictly enforced):
+   - **Standard Shots ($\le 3$ Reference Ingredients or `Start+End` `2K` Bridge Keyframes):** Animate in Native Composer `Frames` Mode (`Agent Mode` OFF, `model: "Veo 3.1 - Lite"`, `duration: 8`, `max_credits: 5`, `download_quality: "upscaled"` $\rightarrow$ `1920x1080` strictly enforced):
      - **Shot 1:** `first_frame = EP##_SC###_KF01_2K.jpeg`, `last_frame = EP##_SC###_KF02_2K.jpeg`
      - **Shot 2:** `first_frame = EP##_SC###_KF02_2K.jpeg`, `last_frame = EP##_SC###_KF03_2K.jpeg`
+   - **Complex Multi-Ingredient Shots ($> 3$ Reference Ingredients, i.e., 4–10 Reference Assets):** Whenever a complex video shot directly attaches **more than 3 reference ingredients** (e.g., Hero + Heroine + Supporting Character + Environment + Prop/Skill in a single `Ingredients` video shot), `flow-mcp` **automatically switches `model` to `"Omni 1.1 Flash"` (`OmniFlat-v1.1`)** (as `Veo 3.1` is capped at 3 ingredients while `Omni 1.1 Flash` supports up to 10 reference ingredients) and downloads in `1080p Upscaled`. Only use `Omni 1.1 Flash` for these complex $>3$-ingredient shots; keep all standard $\le 3$-ingredient and `Start+End` keyframe shots on `Veo 3.1`.
    - **Speaker & Silence Locks:** Explicitly state `"No spoken dialogue; all characters remain completely silent with closed mouths"` on non-dialogue shots, or explicitly specify speaker name, voice timbre, and screen side on dialogue shots while locking other characters' mouths closed.
    - Inspect every downloaded `1080p` `.mp4` via `view_file` and `ffprobe` (`GENERATION_QA.csv`), auto-healing up to 2 times before considering a Gate 2 escalation.
 

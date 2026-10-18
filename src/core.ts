@@ -31,10 +31,10 @@ const sceneSchema = z.object({
   last_frame: z.string().optional().describe("Last frame: absolute image path, or 'asset:<title>'."),
   reference_images: z
     .array(z.string())
-    .max(3)
+    .max(10)
     .optional()
     .describe(
-      "Reference media: absolute image paths, or 'asset:<title>' for media or characters already in the Flow project. Flow's COMPOSER takes references OR first/last frames on a video scene, never both, so with frames set these are skipped and the job says so. Flow itself can do both via agent mode (save the last frame, Animate it, then add the character).",
+      "Reference media: absolute image paths, or 'asset:<title>' for media or characters already in the Flow project. Up to 3 references use Veo 3.1; complex shots with >3 references (4–10 ingredients) automatically switch to 'Omni 1.1 Flash' (OmniFlat-v1.1).",
     ),
   download_quality: z.enum(["original", "upscaled"]).default("upscaled").describe("'upscaled' fetches 1080p video / 2K image (free, default)."),
   retries: z.number().int().min(0).max(3).default(1).describe("Automatic retries when Flow itself reports the generation failed."),
@@ -288,7 +288,11 @@ export class LocalCore implements Core {
     if (reference_from) {
       const still = this.queue.get(reference_from)?.files.find((f) => /\.(jpe?g|png|webp)$/i.test(f));
       if (!still) throw new Error(`reference_previous: the previous scene (${reference_from}) produced no image.`);
-      job.params.reference_images = [still, ...(job.params.reference_images ?? [])].slice(0, 3);
+      job.params.reference_images = [still, ...(job.params.reference_images ?? [])].slice(0, 10);
+      if (job.params.type === "video" && job.params.reference_images.length > 3 && !/omni/i.test(job.params.model ?? "")) {
+        job.params.model = "Omni 1.1 Flash";
+        job.params.max_credits = Math.max(job.params.max_credits ?? 25, 25);
+      }
     }
     if (chain_from) {
       const clip = this.queue.get(chain_from)?.files.find((f) => /\.(mp4|webm|mov)$/i.test(f));
@@ -342,9 +346,19 @@ export class LocalCore implements Core {
       const skinRealism = !isStylized
         ? " SKIN & COLOR REALISM LOCK — Render authentic, unretouched human skin micro-texture with visible fine pores, natural subsurface scattering, subtle micro-creases, and true-to-life original human skin tone under neutral 5600K color balance; never apply plastic CGI smoothing, waxy airbrushing, beauty filters, or artificial orange/teal skin color casts."
         : "";
+      const refCount = (scene.reference_images?.length ?? 0) + (reference_previous ? 1 : 0);
+      const normalizedModel = scene.model && /omniflat|omni\s*1\.1/i.test(scene.model) ? "Omni 1.1 Flash" : scene.model;
+      const autoModel =
+        scene.type !== "image" && refCount > 3 && !/omni/i.test(normalizedModel ?? "")
+          ? "Omni 1.1 Flash"
+          : normalizedModel;
+      const autoMaxCredits =
+        autoModel === "Omni 1.1 Flash" ? Math.max(scene.max_credits ?? 25, 25) : scene.max_credits;
       jobs.push(
         this.queue.add({
           ...scene,
+          model: autoModel,
+          max_credits: autoMaxCredits,
           download_quality: scene.download_quality ?? "upscaled",
           prompt: `${scene.prompt.trim().replace(/\.?$/, ".")}${phrase ? ` ${phrase}` : ""}${lock}${inherit}${skinRealism}`,
           chain_from: chain_previous ? jobs[i - 1].id : undefined,

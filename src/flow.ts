@@ -387,7 +387,13 @@ async function applySettings(page: Page, job: Job): Promise<number> {
   await pickRadio(page, s.type === "image" ? "Image" : "Video");
   if (s.type === "video") await pickRadio(page, framesMode ? "Frames" : "Ingredients");
   if (s.aspect_ratio) await pickRadio(page, s.aspect_ratio);
-  const model = s.type === "image" && LEGACY_IMAGE_MODEL.test(s.model ?? "") ? LATEST_IMAGE_MODEL : s.model;
+  const rawModel = s.model && /omniflat|omni\s*1\.1/i.test(s.model) ? "Omni 1.1 Flash" : s.model;
+  const model =
+    s.type === "image" && LEGACY_IMAGE_MODEL.test(rawModel ?? "")
+      ? LATEST_IMAGE_MODEL
+      : s.type === "video" && (s.reference_images?.length ?? 0) > 3 && !/omni/i.test(rawModel ?? "")
+        ? "Omni 1.1 Flash"
+        : rawModel;
   if (model) await pickModel(page, model);
   if (s.type === "video" && s.resolution) await pickRadio(page, new RegExp(`^${s.resolution}`));
   if (s.type === "video" && s.duration) await pickRadio(page, `${s.duration}s`);
