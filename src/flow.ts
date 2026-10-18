@@ -1141,27 +1141,35 @@ export async function createCharacter(c: CharacterParams, job?: Job): Promise<{ 
   const state = await getFlowState();
   if (!state.signedIn || !state.inProject) throw new Error(state.hint);
   const page = await getFlowPage();
-  // A description generates the portrait first (free image), then the character is built from that picture.
+  // A description generates the portrait first (free 2K image), then the character is built from that picture.
+  // When BOTH c.image (face/likeness reference photo) and c.describe (story wardrobe & role styling) are provided,
+  // Flow attaches c.image as a reference ingredient so 100% of the subject's facial identity is preserved while
+  // dressing them in the exact story-required wardrobe on a #808080 studio backdrop.
   let portrait: string | undefined;
-  if (!c.image) {
-    if (!c.describe) throw new Error("Pass either an image or a description for the character.");
-    if (job) job.progress = "drawing the character";
+  if (c.describe) {
+    if (job) job.progress = c.image ? "adapting reference likeness into story wardrobe" : "drawing the character";
     const dir = join(process.env.FLOW_MCP_OUTPUT ?? join(homedir(), "flow-mcp-out"), "_cast");
+    const basePrompt = c.image
+      ? `Preserve 100% of the exact facial identity, facial bone structure, eye shape, nose, lips, skin tone, hair, and likeness from the attached reference image, while dressing the character in the story-required wardrobe and role styling: ${c.describe.trim().replace(/\.?$/, ".")}`
+      : `${c.describe.trim().replace(/\.?$/, ".")}`;
     const made = await runGeneration({
       ...(job ?? ({ id: "char", status: "running", files: [], attempts: 1, createdAt: "" } as unknown as Job)),
       files: [],
       params: {
-        prompt: `${c.describe.trim().replace(/\.?$/, ".")} Unretouched raw ARRI Alexa Mini LF 35mm portrait photography on a solid flat neutral mid-grey studio backdrop (#808080) with zero background scenery or environment. Authentic true-to-life human skin tone under neutral 5600K daylight balance, real unretouched skin micro-texture with visible fine pores, natural subsurface scattering, subtle vellus hair and natural skin imperfections, zero airbrushing, zero beauty filter, zero plastic or waxy CGI smoothing. Neutral character reference portrait, relaxed neutral posture, empty hands with no handheld props or objects, clean unobstructed view of face and wardrobe, facing the camera. Exactly one character in the frame.`,
+        prompt: `${basePrompt} Unretouched raw ARRI Alexa Mini LF 35mm portrait photography on a solid flat neutral mid-grey studio backdrop (#808080) with zero background scenery or environment. Authentic true-to-life human skin tone under neutral 5600K daylight balance, real unretouched skin micro-texture with visible fine pores, natural subsurface scattering, subtle vellus hair and natural skin imperfections, zero airbrushing, zero beauty filter, zero plastic or waxy CGI smoothing. Neutral character reference portrait, relaxed neutral posture, empty hands with no handheld props or objects, clean unobstructed view of face and wardrobe, facing the camera. Exactly one character in the frame.`,
         type: "image",
         max_credits: 0,
         aspect_ratio: (c.aspect_ratio as "3:4") ?? "3:4",
         download_quality: "upscaled",
+        reference_images: c.image ? [c.image] : undefined,
         output_dir: dir,
         file_stem: c.name.replace(/[^\w.-]+/g, "_"),
       },
     } as Job);
     portrait = made[0];
     c = { ...c, image: portrait };
+  } else if (!c.image) {
+    throw new Error("Pass either an image, a description, or both (reference image + story wardrobe description) for the character.");
   }
   const image = c.image!;
   const projectUrl = page.url();

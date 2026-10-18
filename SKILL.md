@@ -24,10 +24,11 @@ Companion reference files in this skill directory:
 
 Never stop at 17 micro-gates or ask open-ended text questions when selectable options can be provided.
 
-1. **GATE 1 — Initial Setup & Story Sign-Off (At the Beginning Only):**
+1. **GATE 1 — Initial Setup, Story Sign-Off & Main Cast Reference Check:**
    - Read any details already provided by the user.
    - For any missing setup choices (`Module 00`: Work Type/Runtime, Aspect Ratio, Visual Style, Audio Route, Language) or story concept/hook selection (`Module 01` when no full script is supplied), **always call the `ask_question` tool** to present interactive, selectable multiple-choice options (prefixing the best option with `(Recommended)`).
-   - Once the user responds to **Gate 1**, **do NOT ask for any further approvals across Modules 02, 03, 04, 05, 06, or 07.** Execute the entire production pipeline autonomously from screenplay to stitched `1080p` `-crf 14` master video.
+   - **Main Cast Reference Check (Once Character Design Is Drafted in `Module 03`):** Immediately after drafting the character profiles and story-required wardrobes for the **Hero, Heroine, and Main Supporting Roles**, present the cast design summary and ask the user (via `ask_question` selectable options) whether they would like to provide reference images (photos/headshots) for the **Hero, Heroine, or Main Supporting Roles**, or have Google Flow generate their faces from scratch.
+   - Once the user provides any reference images (or selects AI-generated faces), **do NOT ask for any further approvals across Modules 03, 04, 05, 06, or 07.** Execute the entire production pipeline autonomously from Character Masters to the stitched `1080p` `-crf 14` master video.
 2. **GATE 2 — Exception-Only Escalation (During Video Generation / QA Only If Needed):**
    - During `Module 06` (`2K` keyframe & `1080p` video generation), inspect every output file via `view_file` and `ffprobe`. If a defect occurs (identity drift, extra limb, lip-sync mismatch, or transient Flow error), **automatically self-heal first** (up to 2 targeted retries, `flow_edit` surgical tweaks, or `2K` keyframe recompositions).
    - **Only pause and invoke Gate 2** (via `ask_question` with selectable recovery options) if an unrecoverable blocker occurs (e.g., Flow credits exhausted, persistent content policy refusal requiring a script change, or an explicit user interruption).
@@ -53,11 +54,13 @@ Never use heavy orange/teal LUT prompts (such as `"Kodak 2383 color grade"` or `
 ### Module 02: Autonomous Screenplay & Mystery Ledger (`output/<Project>/manifests/SCREENPLAY_V001.md`)
 - Generate the treatment, beat sheet, Mystery Clue $\rightarrow$ Reveal Ledger, and complete production screenplay segmented into `8s` shot beats (`SC###_SH###`).
 
-### Module 03: Autonomous `0`-Credit `2K` Character, Creature & Voice Bibles (`flow_character`)
-- Generate every recurring character in Google Flow (`flow_character` / `core.character`, `0` credits):
-  - **Flat `#808080` neutral mid-grey studio backdrop** with zero background props/scenery.
-  - Prop-free neutral pose with relaxed hands.
-  - Dedicated locked Flow voice (`Aoede`, `Charon`, `Fenrir`, `Kore`, `Puck`) and full physical/wardrobe DNA.
+### Module 03: Character Design, Cast Reference Intake & `0`-Credit `2K` Character/Voice Bibles (`flow_character`)
+- **Step 1 — Draft Character & Story Wardrobe Designs:** Define the physical DNA, personality, voice, and **story-specific wardrobe(s)** for the **Hero, Heroine, and Main Supporting Roles**.
+- **Step 2 — Ask for Cast Reference Images (`ask_question`):** Present the drafted Hero, Heroine, and Supporting Role designs + story wardrobes and ask via `ask_question` if the user has reference images for any of them (e.g., `"I will upload/provide reference images for Hero/Heroine/Supporting roles"`, `"Use reference images for some roles and generate the rest"`, or `"Generate all character faces in Google Flow"`).
+- **Step 3 — Lock Reference Likeness + Update Wardrobe per Story (`flow_character` / `core.character`, `0` credits, `2K` upscaled):**
+  - When a user provides a reference image for a character, pass **both** `image: "<path_to_user_reference>"` **and** `describe: "<story-required wardrobe and role styling>"` to `flow_character` (`createCharacter`).
+  - `createCharacter` automatically attaches the user's reference photo as an Ingredient in Google Flow (`Nano Banana Pro`, `0` credits), **preserves 100% of the subject's exact facial identity, bone structure, eyes, skin tone, and hair**, and **updates their wardrobe to match the exact story requirement** on a **flat `#808080` neutral mid-grey studio backdrop** (`2K` upscaled), then registers that restyled portrait in Flow's **Characters** tab with a locked voice (`Aoede`, `Charon`, `Fenrir`, `Kore`, `Puck`).
+  - If the story requires **wardrobe changes across different scenes/acts** (e.g., formal attire in Act 1, tactical/field attire in Act 2), generate `0`-credit `2K` Wardrobe Variant Master Sheets (`CHAR_<Name>_WardrobeA_2K.jpeg`, `CHAR_<Name>_WardrobeB_2K.jpeg`) from the same reference portrait or via `flow_character_edit` so the face stays 100% locked while the wardrobe adapts to each part of the story.
 - Verify each character/creature portrait with `view_file` and log in `ASSET_REGISTER.csv`.
 
 ### Module 04: Autonomous `0`-Credit `2K` World, Environment & Hero Prop Bibles (`flow_generate` `type: "image"`)

@@ -203,12 +203,16 @@ export const shapes = {
       .string()
       .max(1200)
       .optional()
-      .describe("What the character looks like. Flow draws the portrait first (free image), then builds the character from it. Use this or `image`."),
+      .describe(
+        "What the character and their story-required wardrobe look like. When passed alone, Flow draws a 2K #808080 portrait from scratch (0 credits). When passed together with `image`, Flow locks 100% of the facial likeness from `image` and dresses the character in the story wardrobe described here.",
+      ),
     image: z
       .string()
       .min(1)
       .optional()
-      .describe("Existing picture instead of `describe`: absolute path, or 'asset:<title>' of an image already in the Flow project."),
+      .describe(
+        "Reference image for the character (Hero, Heroine, or Supporting role): absolute local file path or 'asset:<title>' in the Flow project. Pass alone to use as-is, or pass together with `describe` to keep the exact face/likeness while updating the wardrobe per the story.",
+      ),
     aspect_ratio: z.enum(["3:4", "1:1", "9:16", "16:9", "4:3"]).optional().describe("Frame for the drawn portrait when using `describe`. Default 3:4."),
     personality: z.string().max(500).optional().describe("How the character acts; Flow uses it when crafting scenes."),
     voice: z.string().optional().describe("Flow voice name, e.g. 'Charon' (male, informative) or 'Aoede' (female, breezy)."),
