@@ -1,0 +1,266 @@
+{
+  "schema_version": "4.0.0",
+  "edition": "GFlow Studio Autonomous Master Director Edition",
+  "description": "Schema contracts for silent background production register files in output/<Project>/manifests/.",
+  "approval_architecture": {
+    "policy": "TWO_GATE_LOW_FRICTION",
+    "question_delivery": "SELECTABLE_OPTIONS_MODAL_VIA_ASK_QUESTION",
+    "gates": [
+      {
+        "gate_id": "GATE_1_INITIAL_SETUP_AND_STORY",
+        "when": "Beginning of project (Modules 00-01)",
+        "blocks": "Autonomous execution of Modules 02-07"
+      },
+      {
+        "gate_id": "GATE_2_EXCEPTION_ONLY_ESCALATION",
+        "when": "Only on unrecoverable video generation/QA blocker after 2 automatic self-heal attempts (Module 06)",
+        "blocks": "Affected shot or credit/policy resolution"
+      }
+    ]
+  },
+  "required_entities": {
+    "PROJECT_REGISTER": [
+      "project_id",
+      "format",
+      "configuration_version",
+      "story_source",
+      "spoken_language",
+      "visual_style_version",
+      "target_runtime_ms",
+      "aspect_ratio",
+      "fps_num",
+      "fps_den",
+      "platform",
+      "model_default",
+      "model_alternative",
+      "status"
+    ],
+    "ASSET_REGISTER": [
+      "asset_id",
+      "asset_type",
+      "name",
+      "filename",
+      "path",
+      "version",
+      "provenance",
+      "file_exists",
+      "verified_at",
+      "approval_status",
+      "canon_source_id",
+      "state_variant",
+      "dependencies"
+    ],
+    "SCENE_MANIFEST": [
+      "scene_id",
+      "project_id",
+      "episode_id",
+      "sequence_id",
+      "screenplay_version",
+      "scene_packet_version",
+      "location_id",
+      "planned_edit_duration_ms",
+      "start_story_state_id",
+      "end_story_state_id",
+      "approval_status"
+    ],
+    "SHOT_MANIFEST": [
+      "shot_id",
+      "scene_id",
+      "ordinal",
+      "script_beat_id",
+      "shot_packet_version",
+      "model",
+      "mode",
+      "start_frame_2k",
+      "end_frame_2k",
+      "generation_seconds",
+      "planned_edit_duration_ms",
+      "start_state_id",
+      "end_state_id",
+      "take_approved_id",
+      "status"
+    ],
+    "REFERENCE_MAP": [
+      "shot_id",
+      "asset_id",
+      "asset_version",
+      "stage",
+      "input_role",
+      "required",
+      "verified",
+      "actual_attached_filename",
+      "status"
+    ],
+    "AUDIO_CUES": [
+      "cue_id",
+      "shot_id",
+      "scene_id",
+      "track_type",
+      "speaker_source_id",
+      "exact_text",
+      "language",
+      "planned_start_ms",
+      "planned_end_ms",
+      "measured_start_ms",
+      "measured_end_ms",
+      "final_start_frame",
+      "final_end_frame",
+      "fps_num",
+      "fps_den",
+      "sync_anchor",
+      "spatial_position",
+      "carryover",
+      "fades_ducking",
+      "audio_source",
+      "audio_asset_id",
+      "status"
+    ],
+    "CONTINUITY_STATES": [
+      "state_id",
+      "shot_id",
+      "incoming_json_path",
+      "outgoing_json_path",
+      "knowledge_reveals",
+      "predecessor_shot_id",
+      "next_shot_id",
+      "intentional_discontinuity",
+      "approval_status"
+    ],
+    "APPROVAL_LOG": [
+      "approval_id",
+      "gate_id",
+      "artifact_id",
+      "artifact_version",
+      "review_summary",
+      "decision",
+      "approved_by",
+      "approved_at",
+      "notes"
+    ],
+    "CHANGE_LOG": [
+      "change_id",
+      "requester",
+      "source_artifact_id",
+      "source_version",
+      "description",
+      "affected_artifact_ids",
+      "approval_required",
+      "decision",
+      "new_version",
+      "timestamp"
+    ],
+    "GENERATION_QA": [
+      "qa_id",
+      "shot_id",
+      "take_id",
+      "model",
+      "mode",
+      "result_filename",
+      "file_verified",
+      "visual_pass",
+      "continuity_pass",
+      "audio_pass",
+      "editability_pass",
+      "defect_type",
+      "defect_timestamp_ms",
+      "root_cause",
+      "action",
+      "approval_status"
+    ],
+    "EDIT_DECISIONS": [
+      "edit_id",
+      "sequence_id",
+      "scene_id",
+      "shot_id",
+      "approved_take_id",
+      "source_in_frame",
+      "source_out_frame",
+      "timeline_in_frame",
+      "timeline_out_frame",
+      "fps_num",
+      "fps_den",
+      "audio_cue_ids",
+      "picture_lock_version"
+    ],
+    "DELIVERY_MANIFEST": [
+      "delivery_id",
+      "project_id",
+      "edit_version",
+      "master_file",
+      "actual_file_verified",
+      "container",
+      "video_codec",
+      "resolution",
+      "fps_num",
+      "fps_den",
+      "audio_codec",
+      "audio_sample_rate_hz",
+      "subtitle_file",
+      "rights_verified",
+      "final_qa_status"
+    ]
+  },
+  "enums": {
+    "approval_status": [
+      "DRAFT",
+      "REVIEW",
+      "APPROVED",
+      "AUTO_APPROVED",
+      "REJECTED",
+      "SUPERSEDED"
+    ],
+    "asset_status": [
+      "PLANNED",
+      "GENERATED",
+      "VERIFIED_2K",
+      "VERIFIED_1080P",
+      "APPROVED",
+      "REJECTED",
+      "SUPERSEDED"
+    ],
+    "models": [
+      "VEO_3_1_LITE",
+      "OMNI_FLASH_1_1",
+      "NANO_BANANA_PRO_2K"
+    ],
+    "modes": [
+      "FRAMES_FIRST_LAST_SHARED_2K_BRIDGE",
+      "FRAMES_FIRST_2K_COMPOSITE",
+      "EXACT_1080P_PNG_CONTINUE",
+      "INGREDIENTS",
+      "T2V",
+      "EXTEND",
+      "VIDEO_EDIT"
+    ],
+    "stage": [
+      "IMAGE_COMPOSITION_2K",
+      "FLOW_VIDEO_1080P"
+    ],
+    "track_type": [
+      "DX",
+      "VO",
+      "MX",
+      "AM",
+      "FX",
+      "FL"
+    ],
+    "qa_action": [
+      "ACCEPT",
+      "AUTO_RETRY_SAME",
+      "AUTO_RECOMPOSE_2K_KEYFRAME",
+      "SWITCH_MODE",
+      "SWITCH_MODEL",
+      "ESCALATE_TO_GATE_2"
+    ]
+  },
+  "global_constraints": [
+    "2-Gate Low-Friction Approval Policy: Gate 1 at start, Gate 2 only on unrecoverable generation blocker",
+    "All user questions must be presented with selectable options via ask_question",
+    "Character sheets on #808080 neutral grey studio background with locked voice",
+    "ARRI Alexa Mini LF 5600K natural skin micro-texture and pore realism lock",
+    "Shared 2K (2752x1536) Bridge Keyframes (Start+End) default for continuous multi-shot sequences",
+    "Archival FFmpeg master assembly (-crf 14 -preset slow -tune film, 48kHz/256kbps AAC, trim_chained_first_frame: true)"
+  ],
+  "scene_packet_sections": 15,
+  "shot_packet_sections": 18
+}

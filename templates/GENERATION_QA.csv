@@ -1,0 +1,1 @@
+qa_id,shot_id,take_id,model,mode,result_filename,file_verified,visual_pass,continuity_pass,audio_pass,editability_pass,defect_type,defect_timestamp_ms,root_cause,action,approval_status

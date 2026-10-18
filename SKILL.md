@@ -1,51 +1,42 @@
 ---
 name: gflow-studio
 description: >-
-  Autonomous Multi-Style AI Film & Video Production Studio for Google Flow (flow.google.com — Veo 3.1, Nano Banana Pro) powered by flow-mcp.
+  Autonomous Multi-Style AI Film & Video Production Studio for Google Flow (flow.google.com — Veo 3.1, Nano Banana Pro) powered by flow-mcp and the V4.0 Universal AI Cinematic Master Director framework.
   Activate whenever the user says "use gflow-studio", "GFlow Studio", "Flow Studio", "use gflow-agent", "Create a GFlow Video", or asks to produce a consistent multi-shot video in Google Flow.
-  Includes 6-Point Interactive Intake, 0-Credit 2K (2752x1536) Master Bibles (Characters on #808080 backdrop with locked voices, Environments, Props),
+  Enforces a Low-Friction 2-Gate Approval Policy (Gate 1 at initial setup/story via selectable ask_question options; Gate 2 only on unrecoverable video generation blockers),
+  0-Credit 2K (2752x1536) Master Bibles (Characters on #808080 backdrop with locked voices, Creatures, Environments, Props),
   0-Credit Shared 2K Bridge Keyframe Storyboarding (eliminating video snapshot degradation), 2K Multi-Character Composite Keyframes,
   ARRI Alexa Mini LF 5600K Natural Skin & Pore Realism Lock, 1080p Veo 3.1 Start+End Frame Animation, and Archival FFmpeg Mastering (-crf 14 -preset slow -tune film, 48kHz/256kbps AAC).
 ---
 
-# GFlow Studio (`gflow-studio`) — Google Flow MCP Master Production Pipeline
+# GFlow Studio (`gflow-studio`) — V4.0 Autonomous Master Director & Google Flow MCP Pipeline
 
-Whenever the user asks to use **`gflow-studio`**, **"GFlow Studio"**, **"Flow Studio"**, **`gflow-agent`**, or requests a multi-shot film/video in **Google Flow (`flow.google.com`)**, follow this end-to-end production pipeline powered by `flow-mcp` (`C:\Users\babaj\Projects\Antigravity\GFlow\flow-mcp`).
+Whenever the user asks to use **`gflow-studio`**, **"GFlow Studio"**, **"Flow Studio"**, **`gflow-agent`**, or requests a multi-shot film/video in **Google Flow (`flow.google.com`)**, follow this V4.0 Autonomous Master Director workflow powered by `flow-mcp` (`C:\Users\babaj\Projects\Antigravity\GFlow\flow-mcp`).
 
----
-
-## Phase 0: 6-Point Interactive Intake (Ask Missing Fields Once)
-
-Before spending any credits, check what the user has already provided and ask **once** for any missing preferences across these **6 dimensions**:
-
-1. **Video Type / Narrative Genre:**
-   - `Cinematic Story / Short Film` *(Default)*
-   - `Sci-Fi / Cyberpunk / Thriller`
-   - `Mythological / Historical Epic`
-   - `Explainer / Documentary`
-   - `2D / 3D Animated Fable`
-2. **Aspect Ratio:**
-   - `Landscape (16:9) — Standard Widescreen Film` *(Default — `2752x1536` 2K stills & `1920x1080` 1080p master)*
-   - `Vertical (9:16) — Vertical Short / Reel` *(`1080x1920` vertical framing)*
-3. **Visual Style:**
-   - `Hyper-Realistic Cinematic / Live-Action Photorealism` *(ARRI Alexa Mini LF, Panavision Primo primes, 5600K natural skin micro-texture)*
-   - `3D Pixar / Stylized 3D Feature`
-   - `2D Illustration / Anime`
-   - `Claymation / Stop-Motion`
-4. **Target Length / Runtime:**
-   - `Concise (~16–32s | 2–4 shots)`
-   - `Standard (~60–90s | 8–12 shots)`
-   - `Extended (~2–5 min | 15–30 shots)`
-5. **Script Input Mode:**
-   - **Mode A — Premise / Logline Only:** Autonomously write the complete story arc, Character/Environment/Prop Bible, chained `2K` storyboard keyframes, and calibrated shot prompts.
-   - **Mode B — Full Script / Story Bible Provided:** Preserve the user's exact canon, segment into timed `8s` shots, and construct the `2K` Bridge Keyframe storyboard around it.
-6. **Audio, Voice & Post-Production Route:**
-   - **Route A — Native Veo 3.1 Synchronized Dialogue & Ambience:** Uses locked character voices (`Aoede`, `Charon`, `Fenrir`, `Kore`, `Puck`), explicit speaker/silence locks, continuous acoustic room-tone beds, and `clip_volume: 1.0`.
-   - **Route B — Studio Broadcast Hybrid Master:** Combines native Foley/dialogue with neural narration (`flow_narrate`), sidechain BGM ducking (`sidechain_ducking: true`), and `EBU R128 (-16 LUFS)` loudness normalization.
+Companion reference files in this skill directory:
+- [`MASTER_DIRECTOR_PROMPT.md`](./MASTER_DIRECTOR_PROMPT.md) — Full V4.0 Universal AI Cinematic Master Director specification (Modules 00–07, Global Production Controller, 8-Layer Shot Engineering, and Automated QA/Recovery).
+- [`PRODUCTION_TEMPLATES.md`](./PRODUCTION_TEMPLATES.md) — Templates `T0–T8` (15-Section Scene Packet, 18-Section Shot Packet, Audio Cue Contract, and Production Checkpoint).
+- [`GPC_SCHEMAS.json`](./GPC_SCHEMAS.json) & [`templates/`](./templates/) — Machine-readable schemas and 12 CSV register headers maintained silently in `output/<Project>/manifests/`.
 
 ---
 
-## Core Optical & Natural Skin Realism Lock (Mandatory on All Live-Action Prompts)
+## 1. Non-Negotiable 2-Gate Low-Friction Approval Policy & Selectable Options (`ask_question`)
+
+Never stop at 17 micro-gates or ask open-ended text questions when selectable options can be provided.
+
+1. **GATE 1 — Initial Setup & Story Sign-Off (At the Beginning Only):**
+   - Read any details already provided by the user.
+   - For any missing setup choices (`Module 00`: Work Type/Runtime, Aspect Ratio, Visual Style, Audio Route, Language) or story concept/hook selection (`Module 01` when no full script is supplied), **always call the `ask_question` tool** to present interactive, selectable multiple-choice options (prefixing the best option with `(Recommended)`).
+   - Once the user responds to **Gate 1**, **do NOT ask for any further approvals across Modules 02, 03, 04, 05, 06, or 07.** Execute the entire production pipeline autonomously from screenplay to stitched `1080p` `-crf 14` master video.
+2. **GATE 2 — Exception-Only Escalation (During Video Generation / QA Only If Needed):**
+   - During `Module 06` (`2K` keyframe & `1080p` video generation), inspect every output file via `view_file` and `ffprobe`. If a defect occurs (identity drift, extra limb, lip-sync mismatch, or transient Flow error), **automatically self-heal first** (up to 2 targeted retries, `flow_edit` surgical tweaks, or `2K` keyframe recompositions).
+   - **Only pause and invoke Gate 2** (via `ask_question` with selectable recovery options) if an unrecoverable blocker occurs (e.g., Flow credits exhausted, persistent content policy refusal requiring a script change, or an explicit user interruption).
+3. **Silent Background Manifests (Zero Chat Clutter):**
+   - Write all 15-section Scene Packets, 18-section Shot Packets, Bibles, and CSV registers (`PROJECT_REGISTER.csv`, `ASSET_REGISTER.csv`, `SCENE_MANIFEST.csv`, `SHOT_MANIFEST.csv`, `REFERENCE_MAP.csv`, `CONTINUITY_STATES.csv`, `AUDIO_CUES.csv`, `GENERATION_QA.csv`, `DELIVERY_MANIFEST.csv`, `PRODUCTION_CHECKPOINT.md`) to `output/<Project>/manifests/` rather than dumping walls of template text into chat.
+
+---
+
+## 2. Core Optical & Natural Skin Realism Lock (Mandatory on All Live-Action Prompts)
 
 Never use heavy orange/teal LUT prompts (such as `"Kodak 2383 color grade"` or `"warm tungsten key light and cool teal shadows"`) that double-bake contrast or create waxy/fabricated orange skin tones. Always append this optical lock:
 
@@ -53,58 +44,48 @@ Never use heavy orange/teal LUT prompts (such as `"Kodak 2383 color grade"` or `
 
 ---
 
-## Phase 1: `0`-Credit `2K` Master Visual & Voice Bible (In Google Flow)
+## 3. Autonomous End-to-End Execution Pipeline (Modules 00–07)
 
-Generate all foundational assets directly inside Google Flow (`Nano Banana Pro`, `max_credits: 0`, `download_quality: "upscaled"` $\rightarrow$ `2752x1536` `2K`):
+### Module 00 & Module 01: Unified Intake & Concept Selection (`Gate 1` via `ask_question`)
+- Present missing setup preferences and (if starting from a premise/topic) 3–4 high-hook story concepts in a single `ask_question` modal.
+- Upon Gate 1 confirmation, lock `PROJECT_CONFIG` and begin autonomous execution.
 
-1. **Master Characters (`flow_character` / `core.character`):**
-   - Rendered on a **solid flat neutral mid-grey studio background (`#808080`)** with zero environmental props or background scenery (so character chips never bleed studio walls into scene environments).
-   - Prop-free neutral pose with relaxed hands.
-   - Assign a dedicated locked voice (`voice` parameter) and store the full physical + wardrobe specification (`description` parameter).
-2. **Master Environments (`ENV_*`):**
-   - `16:9` `2K` (`2752x1536`) empty architectural/location plates (`0` credits).
-3. **Hero Props (`PROP_*`):**
-   - `16:9` `2K` (`2752x1536`) macro reference plates of recurring objects (`0` credits).
+### Module 02: Autonomous Screenplay & Mystery Ledger (`output/<Project>/manifests/SCREENPLAY_V001.md`)
+- Generate the treatment, beat sheet, Mystery Clue $\rightarrow$ Reveal Ledger, and complete production screenplay segmented into `8s` shot beats (`SC###_SH###`).
 
----
+### Module 03: Autonomous `0`-Credit `2K` Character, Creature & Voice Bibles (`flow_character`)
+- Generate every recurring character in Google Flow (`flow_character` / `core.character`, `0` credits):
+  - **Flat `#808080` neutral mid-grey studio backdrop** with zero background props/scenery.
+  - Prop-free neutral pose with relaxed hands.
+  - Dedicated locked Flow voice (`Aoede`, `Charon`, `Fenrir`, `Kore`, `Puck`) and full physical/wardrobe DNA.
+- Verify each character/creature portrait with `view_file` and log in `ASSET_REGISTER.csv`.
 
-## Phase 2: `0`-Credit Shared `2K` Bridge Keyframe Storyboard (Approval Gate)
+### Module 04: Autonomous `0`-Credit `2K` World, Environment & Hero Prop Bibles (`flow_generate` `type: "image"`)
+- Generate `16:9` `2K` (`2752x1536`) empty architectural/location plates (`ENV_*`) and macro hero prop plates (`PROP_*`) in Google Flow (`Nano Banana Pro`, `max_credits: 0`, `download_quality: "upscaled"`).
+- Verify with `view_file` / `ffprobe` (`2752x1536`) and log in `ASSET_REGISTER.csv`.
 
-Never rely on low-resolution video last-frame snapshots when transitioning between continuous shots. Instead, generate the complete **`2K` (`2752x1536`) still storyboard** in Google Flow for **0 credits** first:
+### Module 05 & Module 06: Scene/Shot Engineering, `0`-Credit Shared `2K` Bridge Keyframes & `1080p` Video Animation
+1. **Stage A — `0`-Credit Shared `2K` (`2752x1536`) Bridge Keyframe Composition:**
+   - Never rely on low-resolution video last-frame snapshots between continuous shots.
+   - Generate chained `2K` (`2752x1536`) stills in Google Flow (`type: "image"`, `max_credits: 0`, `download_quality: "upscaled"`):
+     - `SC###_KF01_2K.jpeg`: References `["asset:<Character>", "asset:<ENV>", "asset:<PROP>"]`
+     - `SC###_KF02_2K.jpeg`: `reference_previous: true` + `["asset:<Character>", "asset:<PROP>"]` (**Shared Bridge Frame**: End of `SH001` & Start of `SH002`)
+     - `SC###_KF03_2K.jpeg`: `reference_previous: true` + `["asset:<Character>", "asset:<PROP>"]` (**Shared Bridge Frame**: End of `SH002` & Start of `SH003`)
+   - For shots with **2+ characters + environment + prop** (exceeding Flow's 3-ingredient R2V limit), compose a `0`-credit `2K` composite still (`KF_<SCENE>_2K.jpeg`) first.
+   - Inspect every `2K` keyframe via `view_file` and auto-heal via `flow_edit` if needed (`0` credits).
+2. **Stage B — `1080p` (`1920x1080`) Video Animation (`Native Composer Frames Mode`):**
+   - Animate in Native Composer `Frames` Mode (`Agent Mode` OFF, `model: "Veo 3.1 - Lite"`, `duration: 8`, `max_credits: 5`, `download_quality: "upscaled"` $\rightarrow$ `1920x1080`):
+     - **Shot 1:** `first_frame = SC###_KF01_2K.jpeg`, `last_frame = SC###_KF02_2K.jpeg`
+     - **Shot 2:** `first_frame = SC###_KF02_2K.jpeg`, `last_frame = SC###_KF03_2K.jpeg`
+   - Always pass the downloaded **`2752x1536` (`2K`)** JPEG paths on disk as `first_frame` and `last_frame`.
+   - For open-ended continuations (`flow_continue` `mode: "exact"`), `runContinue` extracts a lossless `1920x1080` PNG from the `1080p` upscaled source video and runs in Native Composer `Frames` Mode (`Start` frame).
+   - **Speaker & Silence Locks:** Explicitly state `"No spoken dialogue; all characters remain completely silent with closed mouths"` on non-dialogue shots, or explicitly specify speaker name, voice timbre, and screen side on dialogue shots while locking other characters' mouths closed.
+   - Inspect every downloaded `1080p` `.mp4` via `view_file` and `ffprobe` (`GENERATION_QA.csv`), auto-healing up to 2 times before considering a Gate 2 escalation.
 
-1. **Shared `2K` Bridge Keyframes for Continuous Multi-Shot Sequences:**
-   - Generate chained `2K` (`2752x1536`) stills (`type: "image"`, `max_credits: 0`, `download_quality: "upscaled"`):
-     - `KF1_2K`: References `["asset:<Character>", "asset:<ENV>", "asset:<PROP>"]`
-     - `KF2_2K`: `reference_previous: true` + `["asset:<Character>", "asset:<PROP>"]` (Shared Bridge Frame: serves as **End** of Shot 1 and **Start** of Shot 2)
-     - `KF3_2K`: `reference_previous: true` + `["asset:<Character>", "asset:<PROP>"]` (serves as **End** of Shot 2 and **Start** of Shot 3)
-2. **`2K` Composite Keyframes for Multi-Character + Environment + Prop Shots:**
-   - Because `Veo 3.1` R2V supports at most 3 ingredient chips, any shot requiring **2+ characters + environment + prop** must first be generated as a `0`-credit `2K` composite still (`KF_<SCENE>_2K.jpeg`) combining the characters and environment, and then animated in `Frames` Mode (`first_frame: KF_<SCENE>_2K.jpeg`).
-3. **User Review & `0`-Credit Surgical Edits (`flow_edit`):**
-   - Present all `2K` storyboard stills to the user before spending any video credits. Use `flow_edit` (`core.edit`) or regenerate individual stills at `0` credits until 100% approved.
-
----
-
-## Phase 3: `1080p` Video Animation (`Native Composer Frames Mode`)
-
-Animate approved `2K` keyframes in Native Composer `Frames` Mode (`Agent Mode` OFF, `model: "Veo 3.1 - Lite"`, `max_credits: 5`, `download_quality: "upscaled"` $\rightarrow$ `1920x1080`):
-
-1. **Shared `2K` Bridge Handoff (Zero Video Snapshots, Zero Generational Softening):**
-   - **Shot 1:** `first_frame = KF1_2K.jpeg`, `last_frame = KF2_2K.jpeg`
-   - **Shot 2:** `first_frame = KF2_2K.jpeg`, `last_frame = KF3_2K.jpeg`
-   - Always pass the downloaded **`2752x1536` (`2K`)** JPEG files on disk as `first_frame` and `last_frame` so `Veo 3.1` encodes from true `2K` still photographs at both ends.
-2. **Lossless `1080p` PNG Continuation (`flow_continue` `mode: "exact"`):**
-   - When an open-ended continuation is required without a pre-generated end keyframe, `runContinue` downloads the `1080p` (`1920x1080`) upscaled source clip, extracts a lossless PNG (`extractLastFrame`), and animates in Native Composer `Frames` Mode (`Start` frame) with `Agent Mode` OFF.
-3. **Strict Speaker, Lip-Sync & Acoustic Continuity Locks:**
-   - **Silent shots:** Always include `"No spoken dialogue; <Character(s)> remain completely silent with closed mouths."`
-   - **Single-speaker two-shots:** Explicitly name the speaker, gender/timbre, and screen side (`"Thorne (58-year-old bearded man on the right, speaking in a deep resonant male baritone voice) says: '...' Aria on the left remains silent with her mouth closed."`).
-   - **Continuous Acoustic Bed:** Include an identical location `Audio:` suffix across all shots in the same environment.
-
----
-
-## Phase 4: Archival `1080p` Master Assembly (`-crf 14 -preset slow -tune film`)
-
-Assemble all `1080p` (`1920x1080`) clips via `flow_assemble` (`core.assemble`):
-- `transitions`: Use `"none"` across continuous Shared `2K` Bridge cuts and `mode: "exact"` cuts, with `trim_chained_first_frame: true` (trims `0.04s` [1 frame at `24fps`] from the start of each chained incoming shot for a seamless zero-stutter cut).
-- **Archival Encoding (`assemble.ts`):**
-  - Video: `-c:v libx264 -crf 14 -preset slow -tune film -pix_fmt yuv420p` (`~11–12 Mbps` `1080p`, preserving fine skin pore detail and film grain).
-  - Audio: `-c:a aac -ar 48000 -b:a 256k` (`48 kHz` broadcast stereo).
+### Module 07: Autonomous Archival `1080p` Master Assembly (`-crf 14 -preset slow -tune film`)
+- Assemble all verified `1080p` (`1920x1080`) clips via `flow_assemble` (`core.assemble`):
+  - `transitions`: `"none"` across continuous Shared `2K` Bridge and `mode: "exact"` cuts, with `trim_chained_first_frame: true` (trims `0.04s` [1 frame at `24fps`] from each chained incoming shot for a zero-stutter cut).
+  - **Archival Encoding (`assemble.ts`):**
+    - Video: `-c:v libx264 -crf 14 -preset slow -tune film -pix_fmt yuv420p` (`~11–12 Mbps` `1080p`).
+    - Audio: `-c:a aac -ar 48000 -b:a 256k` (`48 kHz` stereo, with optional neural voiceover via `flow_narrate`, `sidechain_ducking: true`, and `EBU R128 -16 LUFS`).
+- Update `DELIVERY_MANIFEST.csv` and `PRODUCTION_CHECKPOINT.md`, and present the finished archival master video to the user.

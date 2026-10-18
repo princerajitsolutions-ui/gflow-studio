@@ -1,0 +1,1 @@
+cue_id,shot_id,scene_id,track_type,speaker_source_id,exact_text,language,planned_start_ms,planned_end_ms,measured_start_ms,measured_end_ms,final_start_frame,final_end_frame,fps_num,fps_den,sync_anchor,spatial_position,carryover,fades_ducking,audio_source,audio_asset_id,status
