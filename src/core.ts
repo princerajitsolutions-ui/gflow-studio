@@ -36,7 +36,7 @@ const sceneSchema = z.object({
     .describe(
       "Reference media: absolute image paths, or 'asset:<title>' for media or characters already in the Flow project. Flow's COMPOSER takes references OR first/last frames on a video scene, never both, so with frames set these are skipped and the job says so. Flow itself can do both via agent mode (save the last frame, Animate it, then add the character).",
     ),
-  download_quality: z.enum(["original", "upscaled"]).optional().describe("'upscaled' fetches 1080p video / 2K image (free, slower). Default original."),
+  download_quality: z.enum(["original", "upscaled"]).default("upscaled").describe("'upscaled' fetches 1080p video / 2K image (free, default)."),
   retries: z.number().int().min(0).max(3).default(1).describe("Automatic retries when Flow itself reports the generation failed."),
   technique: z.string().optional().describe("Id from flow_techniques (e.g. 'orbit-360'); its exact phrase is appended to the prompt. One per scene."),
   reference_previous: z
@@ -71,7 +71,7 @@ export const shapes = {
   download: {
     project: z.string().min(1).describe("Local folder name under the output root."),
     assets: z.array(z.string().min(1)).min(1).max(30).describe("Titles (or title prefixes) from flow_assets, in the order they should be numbered."),
-    quality: z.enum(["original", "upscaled"]).default("original"),
+    quality: z.enum(["original", "upscaled"]).default("upscaled"),
   },
   assemble: {
     project: z.string().min(1).describe("Same project name used in flow_generate."),
@@ -114,7 +114,7 @@ export const shapes = {
     project: z.string().min(1).describe("Folder name for the downloaded images."),
     scenes: z.array(z.string().min(1)).min(1).max(50).describe("One image description per scene, in order."),
     aspect_ratio: z.enum(["16:9", "9:16", "1:1", "4:3", "3:4"]).default("16:9"),
-    download_quality: z.enum(["original", "upscaled"]).optional(),
+    download_quality: z.enum(["original", "upscaled"]).default("upscaled"),
   },
   voices: {},
   narrate: {
@@ -136,7 +136,7 @@ export const shapes = {
     acknowledge_cost: z
       .literal(true)
       .describe("Must be true. Flow shows no quote for edits, so max_credits cannot protect you: a 4 s clip cost 20 credits when measured. The real cost is reported on the finished job."),
-    download_quality: z.enum(["original", "upscaled"]).optional(),
+    download_quality: z.enum(["original", "upscaled"]).default("upscaled"),
   },
   continue_shot: {
     project: z.string().min(1).describe("Local folder for the new clip."),
@@ -157,7 +157,7 @@ export const shapes = {
     acknowledge_cost: z
       .literal(true)
       .describe("Must be true. Agent mode shows no credit quote before it runs, so max_credits cannot protect you; the real cost is reported on the finished job."),
-    download_quality: z.enum(["original", "upscaled"]).optional(),
+    download_quality: z.enum(["original", "upscaled"]).default("upscaled"),
     model: z
       .string()
       .default("Veo 3.1 - Lite")
@@ -341,6 +341,7 @@ export class LocalCore implements Core {
       jobs.push(
         this.queue.add({
           ...scene,
+          download_quality: scene.download_quality ?? "upscaled",
           prompt: `${scene.prompt.trim().replace(/\.?$/, ".")}${phrase ? ` ${phrase}` : ""}${lock}${inherit}${skinRealism}`,
           chain_from: chain_previous ? jobs[i - 1].id : undefined,
           reference_from: reference_previous ? jobs[i - 1].id : undefined,
@@ -384,7 +385,7 @@ export class LocalCore implements Core {
     return (await listAssets()).filter((a) => !kind || a.kind === kind).map(({ name, kind }) => ({ name, kind }));
   }
 
-  async download({ project, assets, quality }: Args<"download">) {
+  async download({ project, assets, quality = "upscaled" }: Args<"download">) {
     if (this.queue.busy) throw new Error(BUSY);
     const dir = projectDir(project);
     mkdirSync(dir, { recursive: true });
@@ -431,7 +432,7 @@ export class LocalCore implements Core {
     return `${prefix}-${String(Math.max(0, ...onDisk, ...queued) + 1).padStart(2, "0")}`;
   }
 
-  async agent({ project, scenes, aspect_ratio, download_quality }: Args<"agent">) {
+  async agent({ project, scenes, aspect_ratio, download_quality = "upscaled" }: Args<"agent">) {
     const output_dir = projectDir(project);
     const job = this.queue.add({
       prompt: `Agent batch: ${scenes.length} images`,
@@ -446,14 +447,14 @@ export class LocalCore implements Core {
     return { output_dir, jobs: [jobView(job)] };
   }
 
-  async edit({ project, asset, prompt, download_quality }: Args<"edit">) {
+  async edit({ project, asset, prompt, download_quality = "upscaled" }: Args<"edit">) {
     const output_dir = projectDir(project);
     const job = this.queue.add({ prompt, type: "video", max_credits: 0, edit_asset: asset, download_quality, output_dir, file_stem: this.nextStem(output_dir, "edit") });
     return { output_dir, jobs: [jobView(job)] };
   }
 
   // Flow's composer takes a start frame OR a character, never both; agent mode takes both, so this goes that way.
-  async continue_shot({ project, from_asset, prompt, action, attach, aspect_ratio, mode, download_quality, model, file_stem, force }: Args<"continue_shot"> & { action?: string }) {
+  async continue_shot({ project, from_asset, prompt, action, attach, aspect_ratio, mode, download_quality = "upscaled", model, file_stem, force }: Args<"continue_shot"> & { action?: string }) {
     const actualPrompt = prompt ?? action ?? "";
     const projPrefix = project ? `${project.toLowerCase()}-` : "";
     const stripPrefix = (s: string) => (projPrefix && s.startsWith(projPrefix) ? s.slice(projPrefix.length) : s);

@@ -497,7 +497,7 @@ async function typePrompt(page: Page, prompt: string): Promise<void> {
 
 export type DownloadQuality = "original" | "upscaled";
 
-export async function downloadMedia(page: Page, mediaId: string, targetStem: string, quality: DownloadQuality = "original"): Promise<string[]> {
+export async function downloadMedia(page: Page, mediaId: string, targetStem: string, quality: DownloadQuality = "upscaled"): Promise<string[]> {
   // A tile that has just finished rendering is still settling and the grid re-renders around it, so give it a moment.
   await scrollToTop(page);
   await pause(page, 2500);
@@ -683,7 +683,7 @@ async function downloadTile(page: Page, target: Locator | TileResolver, targetSt
         throw new Error(items.length ? `Flow's tile menu has no Download item. It offered: ${items.join(" | ")}` : "Flow's tile menu did not open.");
       }
       await download.click({ timeout: 10_000 });
-      // Size submenu: "720p Original size" / "1K Original size", or the best upscale the plan allows.
+      // Size submenu: "720p Original size" / "1K Original size", or the best upscale the plan allows ("1080p Upscaled" / "2K Upscaled").
       const original = page.getByRole("menuitem", { name: /original/i }).first();
       if (await original.waitFor({ state: "visible", timeout: 3000 }).then(() => true, () => false)) {
         const upscaled = page
@@ -691,8 +691,12 @@ async function downloadTile(page: Page, target: Locator | TileResolver, targetSt
           .filter({ hasText: /upscaled/i })
           .filter({ hasNotText: /credits/i })
           .first();
-        const wanted = quality === "upscaled" && (await upscaled.isVisible().catch(() => false)) ? upscaled : original;
-        await wanted.click();
+        if (quality === "upscaled") {
+          await upscaled.waitFor({ state: "visible", timeout: 8000 });
+          await upscaled.click();
+        } else {
+          await original.click();
+        }
       }
       // Upscales are rendered on demand, so they can take minutes to appear.
       const file = await waitForDownloadedFile(page, before, quality === "upscaled" ? 600_000 : 180_000);
@@ -861,7 +865,7 @@ export async function runGeneration(job: Job): Promise<string[]> {
     // old title failed every such download after 30 s ("locator.waitFor: Timeout 30000ms exceeded ... aria-label=
     // <the prompt>", reported by a user, 2026-10-15) while the clip sat finished and renamed in Flow.
     const handle = renamed && id.startsWith("title:") ? `title:${newTitle}` : id;
-    files.push(...(await downloadMedia(page, handle, stem, s.download_quality)));
+    files.push(...(await downloadMedia(page, handle, stem, s.download_quality ?? "upscaled")));
     await pause(page, 1500);
   }
   return files;
@@ -1045,7 +1049,7 @@ export async function listAssets(): Promise<FlowAsset[]> {
 }
 
 // Downloads media that already exists in the project, matched by (the start of) its title.
-export async function downloadAsset(name: string, targetStem: string, quality: DownloadQuality): Promise<string[]> {
+export async function downloadAsset(name: string, targetStem: string, quality: DownloadQuality = "upscaled"): Promise<string[]> {
   const state = await getFlowState();
   if (!state.signedIn || !state.inProject) throw new Error(state.hint);
   const page = await getFlowPage();
@@ -1151,6 +1155,7 @@ export async function createCharacter(c: CharacterParams, job?: Job): Promise<{ 
         type: "image",
         max_credits: 0,
         aspect_ratio: (c.aspect_ratio as "3:4") ?? "3:4",
+        download_quality: "upscaled",
         output_dir: dir,
         file_stem: c.name.replace(/[^\w.-]+/g, "_"),
       },
@@ -1288,7 +1293,7 @@ export async function runEdit(job: Job): Promise<string[]> {
   await ensureProjectGrid(page);
   const fresh = await waitForNewMedia(page, before, 1, 90_000, undefined, "video");
   mkdirSync(s.output_dir, { recursive: true });
-  const saved = await downloadMedia(page, fresh[0], join(s.output_dir, s.file_stem), s.download_quality);
+  const saved = await downloadMedia(page, fresh[0], join(s.output_dir, s.file_stem), s.download_quality ?? "upscaled");
   const after = await readCredits(page).catch(() => undefined);
   if (balance !== undefined && after !== undefined) job.credits = balance - after;
   return saved;
@@ -1498,7 +1503,7 @@ async function agentRound(
       await scanGrid(page, (seen) => seen.some((x) => x.id === id));
       const stem = join(s.output_dir, `scene-${String(base + sceneIndex).padStart(2, "0")}${v ? `-v${v + 1}` : ""}`);
       step(job, `downloading scene ${sceneIndex + 1}`);
-      files.push(...(await downloadTile(page, mediaTile(page, id), stem, s.download_quality ?? "original")));
+      files.push(...(await downloadTile(page, mediaTile(page, id), stem, s.download_quality ?? "upscaled")));
       await pause(page, 800);
     }
     done.add(sceneIndex);
@@ -1638,7 +1643,7 @@ export async function runContinue(job: Job): Promise<string[]> {
     if (renamed) job.note = [job.note, `renamed in Flow to ${newTitle}`].filter(Boolean).join(" · ");
     await pause(page, 800);
     const handle = renamed && id.startsWith("title:") ? `title:${newTitle}` : id;
-    const saved = await downloadMedia(page, handle, join(s.output_dir, s.file_stem), s.download_quality);
+    const saved = await downloadMedia(page, handle, join(s.output_dir, s.file_stem), s.download_quality ?? "upscaled");
     const after = await readCredits(page).catch(() => undefined);
     if (balance !== undefined && after !== undefined) job.credits = balance - after;
     return saved;
@@ -1716,7 +1721,7 @@ export async function runAgentBatch(job: Job): Promise<string[]> {
         type: "image",
         max_credits: 0,
         aspect_ratio: s.aspect_ratio,
-        download_quality: s.download_quality,
+        download_quality: s.download_quality ?? "upscaled",
         output_dir: s.output_dir,
         file_stem: `scene-${String(base + i).padStart(2, "0")}`,
       },
