@@ -1,2 +1,19 @@
 node_modules
 dist
+
+# Exclude all project outputs, episodes, and heavy media binaries from GitHub
+output/
+flow-mcp-out/
+00_SERIES_BIBLE/
+episodes/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.jpeg
+*.jpg
+*.png
+*.wav
+*.m4a
+*.mp3
+*.zip
